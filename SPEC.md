@@ -7,6 +7,7 @@
 | 0.1 | 2026-11-03 11:43:31 +01:00 | Initial requirements proposed for Sprint 1, Task 1. | Codex, for project-author review | Pending |
 | 0.2 | 2026-11-03 12:16:50 +01:00 | Added sources and preparation method; separated assumptions from validation rules (FR-02); clarified decline and discount-limit decisions (section 4, AC-05); required retry keys (FR-16, AC-21); tightened concurrency scenarios (AC-17 to AC-19). | Codex, following project-author feedback | Pending final review |
 | 1.0 | 2026-11-03 12:21:49 +01:00 | First agreed requirements baseline after project-author review. No requirement changes from revision 0.2. | Codex, recording project-author approval | Approved by project author |
+| 1.1 | 2026-11-05 12:10:36 +01:00 | Clarified FR-03 and AC-03 for the final local deliverable: the health check and generated API documentation are accessible without user identity; mortgage operations require identity and role checks. This allows local health checks and API exploration without granting access to mortgage records or decisions. | Codex, recording project-author decision | Approved by project author |
 
 The timestamps for revisions 0.1 and 0.2 were recovered from the file's creation and last-modification times, respectively, before this timestamp correction.
 
@@ -75,6 +76,8 @@ The following assumptions address details left open by the assignment brief:
 | Submit a request | Relationship manager |
 | Approve or decline | Reviewer |
 | Read requests, history or the current approved discount | Either role |
+
+For the final locally runnable deliverable, `GET /health` and the generated API documentation, including its schema, are accessible without a user identity. The health endpoint returns only `{"status": "ok"}` to confirm that the API responds. Viewing the documentation does not bypass identity and role checks when calling mortgage operations. This decision does not define access policy for a future production deployment.
 
 ## 3. User scenarios
 
@@ -149,7 +152,7 @@ The assignment brief does not specify a product-specific maximum discount. No au
 |---|---|
 | FR-01 | An accepted submission must create one uniquely identified request with initial status PENDING. |
 | FR-02 | A submission must be rejected if its application does not exist or its required data fails the validation rules in section 2. |
-| FR-03 | Each operation must require a known user with a role permitted by the access table in section 2. |
+| FR-03 | Each mortgage operation must require a known user with a role permitted by the access table in section 2. |
 | FR-04 | Attempts to change a submitted application ID, discount or reason must be rejected. |
 | FR-05 | A new submission must be rejected if its application already has a pending request. |
 | FR-06 | Approving a pending request must set its status to APPROVED and authorise exactly its submitted discount. |
@@ -187,7 +190,7 @@ For this assignment, the service must run locally without paid services or priva
 |---|---|---|---|
 | AC-01 | A permitted manager submits valid details for an existing application with no pending request. | One identified PENDING request contains the submitted details, submitter and submission time. | FR-01 |
 | AC-02 | A submission contains an unknown application, missing required field, non-positive or fractional discount, or blank reason. Check each case separately. | The submission is rejected without creating a request. | FR-02 |
-| AC-03 | An unknown user or a user with a disallowed role attempts an operation. | The operation is rejected without changing stored records. | FR-03 |
+| AC-03 | An unknown user or a user with a disallowed role attempts a mortgage operation. | The operation is rejected without changing stored records. | FR-03 |
 | AC-04 | Someone attempts to edit submitted details on a pending, approved or declined request. | The edit is rejected; the original details remain unchanged. | FR-04 |
 | AC-05 | An application has a pending request and receives a distinct submission. | The second submission is rejected. After the first is declined, a valid new submission can succeed with a new request ID; the original request and its decline remain in history. | FR-05, FR-11 |
 | AC-06 | A reviewer approves a pending request for 25 basis points. | It becomes APPROVED for exactly 25; the reviewer and decision time are recorded. | FR-06, FR-09 |
