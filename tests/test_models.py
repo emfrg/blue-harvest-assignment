@@ -40,15 +40,14 @@ def example_request(**changes):
     return DiscountRequest(**fields)
 
 
-def test_saved_request_survives_reconnection(model_engine):
+def test_request_stores_submitted_fields_and_defaults(model_engine):
     sessions = create_session_factory(model_engine)
     before = datetime.now(UTC)
     with sessions.begin() as session:
         session.add(example_request())
     after = datetime.now(UTC)
 
-    model_engine.dispose()
-
+    # Test persistence.
     with sessions.begin() as session:
         request = session.scalars(select(DiscountRequest)).one()
         assert request.id > 0
@@ -69,7 +68,10 @@ def test_retry_key_is_unique_per_user(model_engine):
     with sessions.begin() as session:
         session.add(example_request())
 
-    with pytest.raises(IntegrityError, match="requests.submitted_by, requests.retry_key"):
+    # Reject a second saved request with the same user and key.
+    with pytest.raises(
+        IntegrityError, match="requests.submitted_by, requests.retry_key"
+    ):
         with sessions.begin() as session:
             session.add(example_request(application_id=2))
 
@@ -81,33 +83,63 @@ def test_retry_key_is_unique_per_user(model_engine):
         assert len(requests) == 2
 
 
-@pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
-def test_only_one_pending_request_but_final_history_is_retained(model_engine, outcome):
+def test_second_pending_request_is_rejected(model_engine):
     sessions = create_session_factory(model_engine)
     with sessions.begin() as session:
         session.add(example_request())
 
+    # This application already has a pending request.
     with pytest.raises(IntegrityError, match="requests.application_id"):
         with sessions.begin() as session:
             session.add(example_request(retry_key="submission-2"))
 
+    with sessions.begin() as session:
+        request = session.scalars(select(DiscountRequest)).one()
+        assert request.retry_key == "submission-1"
+
+
+@pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
+def test_retry_key_remains_reserved_after_decision(model_engine, outcome):
+    sessions = create_session_factory(model_engine)
+    with sessions.begin() as session:
+        session.add(
+            example_request(
+                status=outcome,
+                reviewer_id=3,
+                decided_at="2026-11-05T14:00:00.000000+00:00",
+            )
+        )
+    # Reject another record using the decided request's user and key.
+    with pytest.raises(
+        IntegrityError, match="requests.submitted_by, requests.retry_key"
+    ):
+        with sessions.begin() as session:
+            session.add(example_request(application_id=2))
+
+
+@pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
+def test_new_request_keeps_previous_request_and_decision(model_engine, outcome):
+    sessions = create_session_factory(model_engine)
+    with sessions.begin() as session:
+        session.add(example_request())
+    # Adding a new request must preserve the earlier approval or decline.
     decision_time = "2026-11-05T14:00:00.000000+00:00"
     with sessions.begin() as session:
         request = session.scalars(select(DiscountRequest)).one()
+        original_id = request.id
         request.status = outcome
         request.reviewer_id = 3
         request.decided_at = decision_time
-
-    with pytest.raises(IntegrityError, match="requests.submitted_by, requests.retry_key"):
-        with sessions.begin() as session:
-            session.add(example_request(application_id=2))
 
     with sessions.begin() as session:
         session.add(example_request(retry_key="submission-2"))
 
     with sessions.begin() as session:
-        requests = session.scalars(select(DiscountRequest).order_by(DiscountRequest.id)).all()
+        requests = session.scalars(
+            select(DiscountRequest).order_by(DiscountRequest.id)
+        ).all()
         assert len(requests) == 2
+        assert requests[0].id == original_id
         assert requests[0].status == outcome
         assert requests[0].reviewer_id == 3
         assert requests[0].decided_at == decision_time
@@ -117,10 +149,12 @@ def test_only_one_pending_request_but_final_history_is_retained(model_engine, ou
 @pytest.mark.parametrize(
     "changes, error",
     [
+        # Discounts must be positive whole numbers.
         ({"discount_bps": 0}, "positive_whole_discount"),
         ({"discount_bps": -1}, "positive_whole_discount"),
         ({"discount_bps": 2.5}, "positive_whole_discount"),
         ({"status": "UNKNOWN"}, "valid_request_status"),
+        # Pending: no reviewer/time. Approved or declined: both required.
         ({"reviewer_id": 3}, "decision_matches_status"),
         ({"decided_at": "2026-11-05T14:00:00+00:00"}, "decision_matches_status"),
         ({"status": "APPROVED", "reviewer_id": 3}, "decision_matches_status"),
@@ -128,10 +162,15 @@ def test_only_one_pending_request_but_final_history_is_retained(model_engine, ou
             {"status": "DECLINED", "decided_at": "2026-11-05T14:00:00+00:00"},
             "decision_matches_status",
         ),
+        # Referenced applications and users must exist.
         ({"application_id": 999}, "FOREIGN KEY constraint failed"),
         ({"submitted_by": 999}, "FOREIGN KEY constraint failed"),
         (
-            {"status": "APPROVED", "reviewer_id": 999, "decided_at": "2026-11-05T14:00:00+00:00"},
+            {
+                "status": "APPROVED",
+                "reviewer_id": 999,
+                "decided_at": "2026-11-05T14:00:00+00:00",
+            },
             "FOREIGN KEY constraint failed",
         ),
     ],
