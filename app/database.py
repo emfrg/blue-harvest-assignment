@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "data" / "requests.sqlite3"
 
@@ -27,3 +28,7 @@ def create_database_engine(database_path=DATABASE_PATH):
     )
     event.listen(engine, "connect", enable_foreign_keys)
     return engine
+
+
+def create_session_factory(engine):
+    return sessionmaker(bind=engine)
