@@ -3,3 +3,4 @@
 /local/
 /.venv/
 __pycache__/
+/data/
