@@ -8,6 +8,8 @@
 | 0.2 | 2026-11-03 12:16:50 +01:00 | Added sources and preparation method; separated assumptions from validation rules (FR-02); clarified decline and discount-limit decisions (section 4, AC-05); required retry keys (FR-16, AC-21); tightened concurrency scenarios (AC-17 to AC-19). | Codex, following project-author feedback | Pending final review |
 | 1.0 | 2026-11-03 12:21:49 +01:00 | First agreed requirements baseline after project-author review. No requirement changes from revision 0.2. | Codex, recording project-author approval | Approved by project author |
 | 1.1 | 2026-11-05 12:10:36 +01:00 | Clarified FR-03 and AC-03 for the final local deliverable: the health check and generated API documentation are accessible without user identity; mortgage operations require identity and role checks. This allows local health checks and API exploration without granting access to mortgage records or decisions. | Codex, recording project-author decision | Approved by project author |
+| 1.2 | 2026-11-05 14:03:37 +01:00 | Added QR-03, QR-04 and QR-05 for consistent formatting, linting and static type checking to support maintainability. These requirements apply to the completed deliverable; tool selection and configuration remain for the technical plan. | Codex, recording project-author approval | Approved by project author |
+| 1.3 | 2026-11-05 14:24:52 +01:00 | Added QR-06 to make formatting, linting and static type checks part of the local commit workflow through pre-commit hooks. Failed checks must block the commit, supporting QR-03, QR-04 and QR-05. | Codex, recording project-author approval | Approved by project author |
 
 The timestamps for revisions 0.1 and 0.2 were recovered from the file's creation and last-modification times, respectively, before this timestamp correction.
 
@@ -181,6 +183,12 @@ These are requirements chosen for this assignment to support reliable operation.
 |---|---|---|
 | QR-01 | Successfully saved requests, decisions and retry-key associations must survive a normal service restart without changed values. | Restart the service and repeat retrieval and submission-retry checks. |
 | QR-02 | Two concurrent submissions or decisions must preserve the single-pending-request, single-decision and retry guarantees. | Send competing calls and inspect the resulting records. |
+| QR-03 | Python application and test code must follow a consistent formatting configuration. | The formatter’s check reports no required changes. |
+| QR-04 | Python application and test code must have no unresolved findings under the agreed linting rules. | The linter passes using the recorded configuration. |
+| QR-05 | Python code within the agreed annotation and checking scope must pass static type checking without reported type errors. | Review annotation coverage and run the selected type checker. |
+| QR-06 | The documented local setup must enable formatting, linting and static type checks as pre-commit hooks. A failed check must block the commit. | Follow the documented setup in an isolated checkout. Attempt commits with a formatting, linting or type-checking failure, one at a time; each must be blocked. Confirm a commit succeeds when all checks pass. |
+
+These requirements apply to the completed deliverable. The technical plan will define the tools, configurations, type-annotation coverage and type-checking strictness.
 
 For this assignment, the service must run locally without paid services or private infrastructure. Setup instructions and seed data must make the acceptance scenarios reproducible.
 
