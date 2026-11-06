@@ -7,8 +7,10 @@ from app.database import DATABASE_PATH, create_database_engine, create_session_f
 
 
 def create_app(database_path=DATABASE_PATH):
+    """Create an API instance using the selected SQLite file. (QR-01)"""
     @asynccontextmanager
     async def lifespan(application):
+        """Provide a session factory and close connections at shutdown. (QR-01)"""
         engine = create_database_engine(database_path)
         application.state.sessions = create_session_factory(engine)
         try:
@@ -21,6 +23,7 @@ def create_app(database_path=DATABASE_PATH):
 
     @application.get("/health")
     def health():
+        """Return the API health status without requiring user identity. (FR-03)"""
         return {"status": "ok"}
 
     return application

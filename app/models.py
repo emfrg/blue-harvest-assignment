@@ -18,6 +18,7 @@ class Base(DeclarativeBase):
 
 
 def current_utc_time():
+    """Return UTC time as ISO 8601 text, including microseconds. (FR-09)"""
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
@@ -41,6 +42,8 @@ class User(Base):
 
 
 class DiscountRequest(Base):
+    """A submitted proposal and its single final decision. (FR-09, FR-11)"""
+
     __tablename__ = "requests"
 
     id = Column(Integer, primary_key=True)
@@ -57,6 +60,7 @@ class DiscountRequest(Base):
     decided_at = Column(Text, nullable=True)
 
     __table_args__ = (
+        # SQLite integer columns can also store decimals; check the type. (FR-02)
         CheckConstraint(
             "typeof(discount_bps) = 'integer' AND discount_bps > 0",
             name="positive_whole_discount",
@@ -70,9 +74,11 @@ class DiscountRequest(Base):
             "AND reviewer_id IS NOT NULL AND decided_at IS NOT NULL)",
             name="decision_matches_status",
         ),
+        # A decision does not release the submission key for reuse. (FR-14)
         UniqueConstraint(
             "submitted_by", "retry_key", name="unique_submitter_retry_key"
         ),
+        # Exclude decided requests so later proposals are allowed. (FR-05)
         Index(
             "one_pending_request_per_application",
             "application_id",

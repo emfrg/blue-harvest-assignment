@@ -3,6 +3,7 @@ from app.models import Base, MortgageApplication, User
 
 
 def create_database(database_path=DATABASE_PATH):
+    """Set up the database tables and sample mortgage applications and users."""
     engine = create_database_engine(database_path)
     try:
         Base.metadata.create_all(engine)

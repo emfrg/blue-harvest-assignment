@@ -22,12 +22,14 @@ router = APIRouter(
 
 
 def get_session_factory(request: Request):
+    """Return the session factory stored on the application at startup."""
     return request.app.state.sessions
 
 
 def get_user_id(
     user_id: int = Header(alias="X-User-Id", gt=0, le=SQLITE_MAX_INTEGER),
 ):
+    """Read the trusted local identity; operations check access. (FR-03)"""
     return user_id
 
 
@@ -61,6 +63,7 @@ def submit(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
+    """Submit a discount request for review and return its details. (FR-01)"""
     request, status = operations.run_operation(
         sessions, operations.submit_request, user_id, retry_key, body
     )
@@ -82,6 +85,7 @@ def read(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
+    """Return the request's submitted details, status and decision. (FR-10)"""
     return operations.run_operation(
         sessions, operations.read_request, user_id, request_id
     )
@@ -103,6 +107,7 @@ def decide(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
+    """Approve or decline a pending request and return its details. (FR-06, FR-07)"""
     return operations.run_operation(
         sessions, operations.decide_request, user_id, request_id, body.outcome
     )
@@ -122,6 +127,7 @@ def history(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
+    """Return all requests and decisions for a mortgage application. (FR-11)"""
     return operations.run_operation(
         sessions, operations.read_history, user_id, application_id
     )
@@ -141,6 +147,7 @@ def approval(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
+    """Return the application's current approved discount, if any. (FR-12)"""
     return operations.run_operation(
         sessions, operations.read_approval, user_id, application_id
     )

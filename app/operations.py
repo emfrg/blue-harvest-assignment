@@ -8,6 +8,7 @@ from app.models import DiscountRequest, MortgageApplication, User, current_utc_t
 
 
 def run_operation(sessions, operation, *args):
+    """Run an operation in a transaction, retrying known conflicts. (QR-02)"""
     for attempt in range(3):
         try:
             with sessions.begin() as session:
@@ -21,7 +22,7 @@ def run_operation(sessions, operation, *args):
             )
             if not known_conflict or attempt == 2:
                 raise
-            # Recheck the committed request in a fresh transaction.
+            # Another call may have saved first; retry in a fresh transaction. (QR-02)
         except OperationalError as error:
             error_name = getattr(error.orig, "sqlite_errorname", "")
             if not error_name.startswith("SQLITE_BUSY"):
@@ -32,6 +33,7 @@ def run_operation(sessions, operation, *args):
 
 
 def check_user(session, user_id, required_role=None):
+    """Reject unknown users or disallowed roles for the local demo. (FR-03)"""
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(403, "Unknown local user")
@@ -40,11 +42,13 @@ def check_user(session, user_id, required_role=None):
 
 
 def check_application(session, application_id):
+    """Check that the mortgage application exists, or raise HTTP 404. (FR-13)"""
     if session.get(MortgageApplication, application_id) is None:
         raise HTTPException(404, "Application not found")
 
 
 def find_request(session, request_id):
+    """Return the stored request, or raise HTTP 404 if it is missing. (FR-13)"""
     request = session.get(DiscountRequest, request_id)
     if request is None:
         raise HTTPException(404, "Request not found")
@@ -52,6 +56,7 @@ def find_request(session, request_id):
 
 
 def request_details(request):
+    """Build the API response fields from a stored discount request. (FR-10)"""
     return {
         "id": request.id,
         "application_id": request.application_id,
@@ -66,6 +71,7 @@ def request_details(request):
 
 
 def submit_request(session, user_id, retry_key, submission):
+    """Submit a new request or retrieve the original on retry. (FR-01, FR-14)"""
     check_user(session, user_id, "RELATIONSHIP_MANAGER")
     original = session.scalar(
         select(DiscountRequest).where(
@@ -100,22 +106,26 @@ def submit_request(session, user_id, retry_key, submission):
         retry_key=retry_key,
     )
     session.add(request)
+    # Populate the ID and defaults before building the response. (FR-01)
     session.flush()
     return request_details(request), 201
 
 
 def read_request(session, user_id, request_id):
+    """Return request details after checking the user's access. (FR-03, FR-10)"""
     check_user(session, user_id)
     return request_details(find_request(session, request_id))
 
 
 def decide_request(session, user_id, request_id, outcome):
+    """Record one final decision with its reviewer and time. (FR-08, FR-09)"""
     check_user(session, user_id, "REVIEWER")
     result = session.execute(
         update(DiscountRequest)
         .where(DiscountRequest.id == request_id, DiscountRequest.status == "PENDING")
         .values(status=outcome, reviewer_id=user_id, decided_at=current_utc_time())
     )
+    # Check for a missing request before reporting a repeated decision. (FR-13)
     request = find_request(session, request_id)
     if result.rowcount == 0:
         raise HTTPException(409, "Request already decided")
@@ -123,6 +133,7 @@ def decide_request(session, user_id, request_id, outcome):
 
 
 def read_history(session, user_id, application_id):
+    """Return the application's requests and decisions, oldest first. (FR-11)"""
     check_user(session, user_id)
     check_application(session, application_id)
     requests = session.scalars(
@@ -137,6 +148,7 @@ def read_history(session, user_id, application_id):
 
 
 def read_approval(session, user_id, application_id):
+    """Return the latest approved discount or its absence. (FR-12)"""
     check_user(session, user_id)
     check_application(session, application_id)
     request = session.scalar(
