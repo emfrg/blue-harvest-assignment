@@ -55,7 +55,6 @@ def test_submission_records_original_details_and_can_be_read(api_client):
         "submitted_by": 1,
         "submitted_at": request["submitted_at"],
         "status": "PENDING",
-        "retry_key": "submission-1",
         "reviewer_id": None,
         "decided_at": None,
     }
@@ -361,5 +360,6 @@ def test_public_docs_describe_inputs_outputs_and_errors(api_client):
     ]
     assert set(models["RequestDetails"]["required"]) == {
         "id", "application_id", "discount_bps", "reason", "submitted_by",
-        "submitted_at", "status", "retry_key", "reviewer_id", "decided_at"
+        "submitted_at", "status", "reviewer_id", "decided_at"
     }
+    assert "retry_key" not in models["RequestDetails"]["properties"]

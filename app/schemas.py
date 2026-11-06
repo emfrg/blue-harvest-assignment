@@ -28,7 +28,6 @@ class RequestDetails(BaseModel):
     submitted_by: int
     submitted_at: str = Field(json_schema_extra={"format": "date-time"})
     status: Literal["PENDING", "APPROVED", "DECLINED"]
-    retry_key: str
     reviewer_id: int | None
     decided_at: str | None = Field(json_schema_extra={"format": "date-time"})
 

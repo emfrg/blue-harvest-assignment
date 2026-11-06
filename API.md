@@ -11,6 +11,7 @@ The executable schemas are in `app/schemas.py` and appear in `/docs` and
 | Revision | Timestamp (Europe/Amsterdam) | Change |
 |---|---|---|
 | 0.1 | 2026-11-05 17:08:48 +01:00 | Initial implemented contract, ready for author review. Business requirements remain those in specification revision 1.3. |
+| 0.2 | 2026-11-06 08:37:22 +01:00 | Author-approved response change: omit `retry_key` from request responses so they focus on submitted details and decisions. The key remains required on submission and stored for duplicate protection. Clarify submission descriptions and session-factory access. Specification revision 1.3 still applies. |
 
 ## Data model and audit history
 
@@ -24,7 +25,7 @@ Each request retains its original submission and its one final decision.
 Submission and decision timestamps are assigned by the API in UTC, stored and
 returned as ISO 8601 text with microseconds and a `+00:00` offset.
 
-| Request field | Type | Rule |
+| Stored request field | Type | Rule |
 |---|---|---|
 | `id` | Integer | Database-generated primary key. |
 | `application_id` | Integer | Existing mortgage application; cannot change. |
@@ -84,7 +85,7 @@ remain public, as specified in FR-03.
 
 | Method | Path | Role | Successful response |
 |---|---|---|---|
-| POST | `/requests` | Relationship manager | `201` Request; `200` Request for a matching retry. Requires `Idempotency-Key`. |
+| POST | `/requests` | Relationship manager | `201` Request created; `200` existing Request returned. |
 | GET | `/requests/{request_id}` | Either role | `200` Request. |
 | POST | `/requests/{request_id}/decision` | Reviewer | `200` Request after the decision. |
 | GET | `/applications/{application_id}/requests` | Either role | `200` History. |
@@ -95,11 +96,15 @@ remain public, as specified in FR-03.
 
 POST bodies use `Content-Type: application/json`.
 
-Submission requires exactly these fields:
+A relationship manager submits an application ID, requested discount and reason.
+The request starts as `PENDING`. The body requires exactly these fields:
 
 ```json
 {"application_id": 1, "discount_bps": 25, "reason": "Competitive offer"}
 ```
+
+Submission also requires the `Idempotency-Key` header, described under
+[submission retries](#submission-retries-and-transactions).
 
 Decision requires exactly one field; its value is `APPROVED` or `DECLINED`:
 
@@ -107,8 +112,9 @@ Decision requires exactly one field; its value is `APPROVED` or `DECLINED`:
 {"outcome": "APPROVED"}
 ```
 
-Request responses contain every field in the data-model table, including null
-decision fields when pending. Example:
+Every Request response contains the nine fields shown below. Decision fields are
+null while pending. The stored `retry_key` is used for duplicate protection and
+is not included in response bodies.
 
 ```json
 {
@@ -119,7 +125,6 @@ decision fields when pending. Example:
   "submitted_by": 1,
   "submitted_at": "2026-11-05T16:00:00.000000+00:00",
   "status": "PENDING",
-  "retry_key": "submission-1",
   "reviewer_id": null,
   "decided_at": null
 }
@@ -166,7 +171,10 @@ Expected application errors return `{"detail":"message"}`, for example
 Unexpected failures return a generic server error; raw database errors are not
 included in API responses.
 
-## Retries and transactions
+## Submission retries and transactions
+
+The caller chooses a new `Idempotency-Key` for each new submission. When resending
+the same submission after a timeout, it sends the same key and details.
 
 Check `(submitted_by, retry_key)` before checking for a pending request. If found,
 compare application ID, discount and reason exactly. A match returns the original
@@ -179,6 +187,10 @@ Every database operation uses its own session and transaction. Successful writes
 commit before a success response; exceptions roll back. Submission saves its
 key and request together. A decision uses one conditional UPDATE matching the
 request ID and `PENDING`, setting status, reviewer and time together.
+
+`get_session_factory` in `app/api.py` retrieves the application's session factory.
+`run_operation` in `app/operations.py` opens each session and transaction with
+`with sessions.begin() as session:`.
 
 Uniqueness conflicts are re-evaluated in a fresh transaction. SQLite busy errors
 retry the complete transaction, with a maximum of three attempts and waits of

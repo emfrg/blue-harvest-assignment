@@ -60,7 +60,6 @@ def request_details(request):
         "submitted_by": request.submitted_by,
         "submitted_at": request.submitted_at,
         "status": request.status,
-        "retry_key": request.retry_key,
         "reviewer_id": request.reviewer_id,
         "decided_at": request.decided_at,
     }
