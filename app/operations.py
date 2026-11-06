@@ -1,0 +1,154 @@
+from time import sleep
+
+from fastapi import HTTPException
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError, OperationalError
+
+from app.models import DiscountRequest, MortgageApplication, User, current_utc_time
+
+
+def run_operation(sessions, operation, *args):
+    for attempt in range(3):
+        try:
+            with sessions.begin() as session:
+                result = operation(session, *args)
+            return result
+        except IntegrityError as error:
+            message = str(error.orig)
+            known_conflict = message in (
+                "UNIQUE constraint failed: requests.submitted_by, requests.retry_key",
+                "UNIQUE constraint failed: requests.application_id",
+            )
+            if not known_conflict or attempt == 2:
+                raise
+            # Recheck the committed request in a fresh transaction.
+        except OperationalError as error:
+            error_name = getattr(error.orig, "sqlite_errorname", "")
+            if not error_name.startswith("SQLITE_BUSY"):
+                raise
+            if attempt == 2:
+                raise HTTPException(503, "Database busy; try again") from error
+            sleep(0.05 * (attempt + 1))
+
+
+def check_user(session, user_id, required_role=None):
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(403, "Unknown local user")
+    if required_role is not None and user.role != required_role:
+        raise HTTPException(403, "Role not permitted")
+
+
+def check_application(session, application_id):
+    if session.get(MortgageApplication, application_id) is None:
+        raise HTTPException(404, "Application not found")
+
+
+def find_request(session, request_id):
+    request = session.get(DiscountRequest, request_id)
+    if request is None:
+        raise HTTPException(404, "Request not found")
+    return request
+
+
+def request_details(request):
+    return {
+        "id": request.id,
+        "application_id": request.application_id,
+        "discount_bps": request.discount_bps,
+        "reason": request.reason,
+        "submitted_by": request.submitted_by,
+        "submitted_at": request.submitted_at,
+        "status": request.status,
+        "reviewer_id": request.reviewer_id,
+        "decided_at": request.decided_at,
+    }
+
+
+def submit_request(session, user_id, retry_key, submission):
+    check_user(session, user_id, "RELATIONSHIP_MANAGER")
+    original = session.scalar(
+        select(DiscountRequest).where(
+            DiscountRequest.submitted_by == user_id,
+            DiscountRequest.retry_key == retry_key,
+        )
+    )
+    if original is not None:
+        if (
+            original.application_id != submission.application_id
+            or original.discount_bps != submission.discount_bps
+            or original.reason != submission.reason
+        ):
+            raise HTTPException(409, "Retry key already used with different details")
+        return request_details(original), 200
+
+    check_application(session, submission.application_id)
+    pending = session.scalar(
+        select(DiscountRequest.id).where(
+            DiscountRequest.application_id == submission.application_id,
+            DiscountRequest.status == "PENDING",
+        )
+    )
+    if pending is not None:
+        raise HTTPException(409, "Application already has a pending request")
+
+    request = DiscountRequest(
+        application_id=submission.application_id,
+        discount_bps=submission.discount_bps,
+        reason=submission.reason,
+        submitted_by=user_id,
+        retry_key=retry_key,
+    )
+    session.add(request)
+    session.flush()
+    return request_details(request), 201
+
+
+def read_request(session, user_id, request_id):
+    check_user(session, user_id)
+    return request_details(find_request(session, request_id))
+
+
+def decide_request(session, user_id, request_id, outcome):
+    check_user(session, user_id, "REVIEWER")
+    result = session.execute(
+        update(DiscountRequest)
+        .where(DiscountRequest.id == request_id, DiscountRequest.status == "PENDING")
+        .values(status=outcome, reviewer_id=user_id, decided_at=current_utc_time())
+    )
+    request = find_request(session, request_id)
+    if result.rowcount == 0:
+        raise HTTPException(409, "Request already decided")
+    return request_details(request)
+
+
+def read_history(session, user_id, application_id):
+    check_user(session, user_id)
+    check_application(session, application_id)
+    requests = session.scalars(
+        select(DiscountRequest)
+        .where(DiscountRequest.application_id == application_id)
+        .order_by(DiscountRequest.id)
+    ).all()
+    return {
+        "application_id": application_id,
+        "requests": [request_details(request) for request in requests],
+    }
+
+
+def read_approval(session, user_id, application_id):
+    check_user(session, user_id)
+    check_application(session, application_id)
+    request = session.scalar(
+        select(DiscountRequest)
+        .where(
+            DiscountRequest.application_id == application_id,
+            DiscountRequest.status == "APPROVED",
+        )
+        .order_by(DiscountRequest.id.desc())
+        .limit(1)
+    )
+    approval = None
+    if request is not None:
+        approval = {"request_id": request.id, "discount_bps": request.discount_bps}
+    return {"application_id": application_id, "approved_discount": approval}
