@@ -8,11 +8,16 @@ from app.models import DiscountRequest, MortgageApplication, User, current_utc_t
 
 
 def run_operation(sessions, operation, *args):
-    """Run an operation in a transaction, retrying known conflicts. (QR-02)"""
+    """Run an operation in a transaction, retrying known database conflicts.
+
+    Make up to three attempts for SQLite busy errors or conflicts with the
+    submission-key or single-pending-request uniqueness constraints.
+    Other errors are raised immediately.
+    """
     for attempt in range(3):
         try:
             # Save all changes together when the block succeeds.
-            # Roll them back if an error occurs. (QR-02)
+            # Roll them back if an error occurs.
             with sessions.begin() as session:
                 result = operation(session, *args)
             return result
@@ -36,7 +41,7 @@ def run_operation(sessions, operation, *args):
 
 
 def check_user(session, user_id, required_role=None):
-    """Reject unknown users or users without the required role. (FR-03)"""
+    """Reject unknown users or users without the required role."""
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(403, "Unknown local user")
@@ -45,13 +50,13 @@ def check_user(session, user_id, required_role=None):
 
 
 def check_application(session, application_id):
-    """Check that the application exists, or raise HTTP 404 if it is missing. (FR-13)"""
+    """Check that the application exists, or raise HTTP 404 if it is missing."""
     if session.get(MortgageApplication, application_id) is None:
         raise HTTPException(404, "Application not found")
 
 
 def find_request(session, request_id):
-    """Return the stored request, or raise HTTP 404 if it is missing. (FR-13)"""
+    """Return the stored request, or raise HTTP 404 if it is missing."""
     request = session.get(DiscountRequest, request_id)
     if request is None:
         raise HTTPException(404, "Request not found")
@@ -59,7 +64,7 @@ def find_request(session, request_id):
 
 
 def request_details(request):
-    """Build the API response fields from a stored discount request. (FR-10)"""
+    """Build the API response fields from a stored discount request."""
     return {
         "id": request.id,
         "application_id": request.application_id,
@@ -74,7 +79,12 @@ def request_details(request):
 
 
 def submit_request(session, user_id, retry_key, submission):
-    """Submit a new request or retrieve the original on retry. (FR-01, FR-14)"""
+    """Submit a new request or retrieve the original on retry.
+
+    Returns:
+        A tuple of request details and HTTP status: 201 for a new request,
+        or 200 for a matching retry.
+    """
     check_user(session, user_id, "RELATIONSHIP_MANAGER")
     # Check for a previous submission first so a retry can return it,
     # even when that request is still pending. (FR-14)
@@ -113,19 +123,19 @@ def submit_request(session, user_id, retry_key, submission):
     )
     session.add(request)
     # Flush inserts the request and fills in its ID, submission time and status.
-    # run_operation commits the transaction when the operation succeeds. (FR-01)
+    # run_operation commits the transaction when the operation succeeds.
     session.flush()
     return request_details(request), 201
 
 
 def read_request(session, user_id, request_id):
-    """Return request details after checking the user's access. (FR-03, FR-10)"""
+    """Return request details after checking the user's access."""
     check_user(session, user_id)
     return request_details(find_request(session, request_id))
 
 
 def decide_request(session, user_id, request_id, outcome):
-    """Record one final decision with its reviewer and time. (FR-08, FR-09)"""
+    """Record one final decision with its reviewer and time."""
     check_user(session, user_id, "REVIEWER")
     # The database applies this update only if the request is still PENDING.
     # An existing approval or decline is left unchanged. (FR-08, QR-02)
@@ -143,7 +153,7 @@ def decide_request(session, user_id, request_id, outcome):
 
 
 def read_history(session, user_id, application_id):
-    """Return the application's requests and decisions, oldest first. (FR-11)"""
+    """Return the application's requests and decisions, oldest first."""
     check_user(session, user_id)
     check_application(session, application_id)
     requests = session.scalars(
@@ -160,7 +170,10 @@ def read_history(session, user_id, application_id):
 def read_approval(session, user_id, application_id):
     """Return the application ID and the current approved discount details.
 
-    The approved_discount field is None when no request has been approved. (FR-12)
+    Returns:
+        A dictionary containing application_id and approved_discount.
+        The approved_discount field contains a dictionary with request_id and
+        discount_bps, or None if the application has no approved requests.
     """
     check_user(session, user_id)
     check_application(session, application_id)

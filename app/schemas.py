@@ -27,7 +27,7 @@ class RequestDetails(BaseModel):
     discount_bps: int
     reason: str
     submitted_by: int
-    # Describe this string as a date and time in the API schema. (FR-09)
+    # Describe this string as a date and time in the API schema.
     submitted_at: str = Field(json_schema_extra={"format": "date-time"})
     status: Literal["PENDING", "APPROVED", "DECLINED"]
     reviewer_id: int | None

@@ -13,7 +13,7 @@ from app.schemas import (
 
 
 # Add these shared error responses to the API documentation.
-# The checks that trigger these errors are in operations.py. (FR-03, FR-13, QR-02)
+# The checks that trigger these errors are in operations.py.
 router = APIRouter(
     responses={
         403: {"model": ErrorResponse, "description": "Unknown user or disallowed role"},
@@ -31,7 +31,7 @@ def get_session_factory(request: Request):
 def get_user_id(
     user_id: int = Header(alias="X-User-Id", gt=0, le=SQLITE_MAX_INTEGER),
 ):
-    """Return the user ID supplied in the X-User-Id header. (FR-03)"""
+    """Return the user ID supplied in the X-User-Id header."""
     return user_id
 
 
@@ -65,11 +65,11 @@ def submit(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
-    """Submit a discount request for review and return its details. (FR-01)"""
+    """Submit a discount request for review and return its details."""
     request, status = operations.run_operation(
         sessions, operations.submit_request, user_id, retry_key, body
     )
-    # Use 201 for a new request and 200 for an existing one. (FR-01, FR-14)
+    # Use 201 for a new request and 200 for an existing one.
     response.status_code = status
     return request
 
@@ -88,7 +88,7 @@ def read(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
-    """Return the request's submitted details, status and decision. (FR-10)"""
+    """Return the request's submitted details, status and decision."""
     return operations.run_operation(
         sessions, operations.read_request, user_id, request_id
     )
@@ -110,7 +110,7 @@ def decide(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
-    """Approve or decline a pending request and return its details. (FR-06, FR-07)"""
+    """Approve or decline a pending request and return its details."""
     return operations.run_operation(
         sessions, operations.decide_request, user_id, request_id, body.outcome
     )
@@ -130,7 +130,7 @@ def history(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
-    """Return all requests and decisions for a mortgage application. (FR-11)"""
+    """Return all requests and decisions for a mortgage application."""
     return operations.run_operation(
         sessions, operations.read_history, user_id, application_id
     )
@@ -150,7 +150,7 @@ def approval(
     user_id=Depends(get_user_id),
     sessions=Depends(get_session_factory),
 ):
-    """Return the application's current approved discount, if any. (FR-12)"""
+    """Return the application's current approved discount, if any."""
     return operations.run_operation(
         sessions, operations.read_approval, user_id, application_id
     )

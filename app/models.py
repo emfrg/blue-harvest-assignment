@@ -18,7 +18,7 @@ class Base(DeclarativeBase):
 
 
 def current_utc_time():
-    """Return the current UTC date and time as text. (FR-09)"""
+    """Return the current UTC date and time as text."""
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
@@ -42,7 +42,7 @@ class User(Base):
 
 
 class DiscountRequest(Base):
-    """Store a mortgage discount request, its status and any review decision."""
+    """A mortgage discount request with its status and any review decision."""
 
     __tablename__ = "requests"
 
