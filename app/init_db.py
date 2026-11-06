@@ -8,6 +8,7 @@ def create_database(database_path=DATABASE_PATH):
     try:
         Base.metadata.create_all(engine)
         sessions = create_session_factory(engine)
+        # Insert the sample applications and users if they do not already exist. (QR-01)
         with sessions.begin() as session:
             for application_id in (1, 2):
                 if session.get(MortgageApplication, application_id) is None:

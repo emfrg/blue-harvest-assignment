@@ -12,6 +12,8 @@ from app.schemas import (
 )
 
 
+# Add these shared error responses to the API documentation.
+# The checks that trigger these errors are in operations.py. (FR-03, FR-13, QR-02)
 router = APIRouter(
     responses={
         403: {"model": ErrorResponse, "description": "Unknown user or disallowed role"},
@@ -29,7 +31,7 @@ def get_session_factory(request: Request):
 def get_user_id(
     user_id: int = Header(alias="X-User-Id", gt=0, le=SQLITE_MAX_INTEGER),
 ):
-    """Read the trusted local identity; operations check access. (FR-03)"""
+    """Return the user ID supplied in the X-User-Id header. (FR-03)"""
     return user_id
 
 
@@ -67,6 +69,7 @@ def submit(
     request, status = operations.run_operation(
         sessions, operations.submit_request, user_id, retry_key, body
     )
+    # Use 201 for a new request and 200 for an existing one. (FR-01, FR-14)
     response.status_code = status
     return request
 

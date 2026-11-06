@@ -11,6 +11,8 @@ def run_operation(sessions, operation, *args):
     """Run an operation in a transaction, retrying known conflicts. (QR-02)"""
     for attempt in range(3):
         try:
+            # Save all changes together when the block succeeds.
+            # Roll them back if an error occurs. (QR-02)
             with sessions.begin() as session:
                 result = operation(session, *args)
             return result
@@ -22,7 +24,8 @@ def run_operation(sessions, operation, *args):
             )
             if not known_conflict or attempt == 2:
                 raise
-            # Another call may have saved first; retry in a fresh transaction. (QR-02)
+            # Another submission may have saved a request while this one was running.
+            # A new transaction lets the operation check the latest saved data. (QR-02)
         except OperationalError as error:
             error_name = getattr(error.orig, "sqlite_errorname", "")
             if not error_name.startswith("SQLITE_BUSY"):
@@ -33,7 +36,7 @@ def run_operation(sessions, operation, *args):
 
 
 def check_user(session, user_id, required_role=None):
-    """Reject unknown users or disallowed roles for the local demo. (FR-03)"""
+    """Reject unknown users or users without the required role. (FR-03)"""
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(403, "Unknown local user")
@@ -42,7 +45,7 @@ def check_user(session, user_id, required_role=None):
 
 
 def check_application(session, application_id):
-    """Check that the mortgage application exists, or raise HTTP 404. (FR-13)"""
+    """Check that the application exists, or raise HTTP 404 if it is missing. (FR-13)"""
     if session.get(MortgageApplication, application_id) is None:
         raise HTTPException(404, "Application not found")
 
@@ -73,6 +76,8 @@ def request_details(request):
 def submit_request(session, user_id, retry_key, submission):
     """Submit a new request or retrieve the original on retry. (FR-01, FR-14)"""
     check_user(session, user_id, "RELATIONSHIP_MANAGER")
+    # Check for a previous submission first so a retry can return it,
+    # even when that request is still pending. (FR-14)
     original = session.scalar(
         select(DiscountRequest).where(
             DiscountRequest.submitted_by == user_id,
@@ -88,6 +93,7 @@ def submit_request(session, user_id, retry_key, submission):
             raise HTTPException(409, "Retry key already used with different details")
         return request_details(original), 200
 
+    # A new submission needs an existing application with no pending request.
     check_application(session, submission.application_id)
     pending = session.scalar(
         select(DiscountRequest.id).where(
@@ -106,7 +112,8 @@ def submit_request(session, user_id, retry_key, submission):
         retry_key=retry_key,
     )
     session.add(request)
-    # Populate the ID and defaults before building the response. (FR-01)
+    # Flush inserts the request and fills in its ID, submission time and status.
+    # run_operation commits the transaction when the operation succeeds. (FR-01)
     session.flush()
     return request_details(request), 201
 
@@ -120,12 +127,15 @@ def read_request(session, user_id, request_id):
 def decide_request(session, user_id, request_id, outcome):
     """Record one final decision with its reviewer and time. (FR-08, FR-09)"""
     check_user(session, user_id, "REVIEWER")
+    # The database applies this update only if the request is still PENDING.
+    # An existing approval or decline is left unchanged. (FR-08, QR-02)
     result = session.execute(
         update(DiscountRequest)
         .where(DiscountRequest.id == request_id, DiscountRequest.status == "PENDING")
         .values(status=outcome, reviewer_id=user_id, decided_at=current_utc_time())
     )
-    # Check for a missing request before reporting a repeated decision. (FR-13)
+    # A missing request and an already decided request both produce zero updated rows.
+    # This lookup raises 404 for a missing request. (FR-13)
     request = find_request(session, request_id)
     if result.rowcount == 0:
         raise HTTPException(409, "Request already decided")
@@ -148,7 +158,10 @@ def read_history(session, user_id, application_id):
 
 
 def read_approval(session, user_id, application_id):
-    """Return the latest approved discount or its absence. (FR-12)"""
+    """Return the application ID and the current approved discount details.
+
+    The approved_discount field is None when no request has been approved. (FR-12)
+    """
     check_user(session, user_id)
     check_application(session, application_id)
     request = session.scalar(

@@ -18,7 +18,7 @@ class Base(DeclarativeBase):
 
 
 def current_utc_time():
-    """Return UTC time as ISO 8601 text, including microseconds. (FR-09)"""
+    """Return the current UTC date and time as text. (FR-09)"""
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
@@ -42,7 +42,7 @@ class User(Base):
 
 
 class DiscountRequest(Base):
-    """A submitted proposal and its single final decision. (FR-09, FR-11)"""
+    """Store a mortgage discount request, its status and any review decision."""
 
     __tablename__ = "requests"
 
@@ -68,17 +68,21 @@ class DiscountRequest(Base):
         CheckConstraint(
             "status IN ('PENDING', 'APPROVED', 'DECLINED')", name="valid_request_status"
         ),
+        # Pending requests have no reviewer or decision time.
+        # Approved and declined requests must have both. (FR-09)
         CheckConstraint(
             "(status = 'PENDING' AND reviewer_id IS NULL AND decided_at IS NULL) OR "
             "(status IN ('APPROVED', 'DECLINED') "
             "AND reviewer_id IS NOT NULL AND decided_at IS NOT NULL)",
             name="decision_matches_status",
         ),
-        # A decision does not release the submission key for reuse. (FR-14)
+        # A user's submission key stays linked to the original request,
+        # including after the request is approved or declined. (FR-14)
         UniqueConstraint(
             "submitted_by", "retry_key", name="unique_submitter_retry_key"
         ),
-        # Exclude decided requests so later proposals are allowed. (FR-05)
+        # This unique index allows at most one PENDING request per application.
+        # An application can still have multiple approved or declined requests. (FR-05)
         Index(
             "one_pending_request_per_application",
             "application_id",
