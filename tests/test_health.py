@@ -4,6 +4,7 @@ from app.main import app
 
 
 def test_health():
+    """Check that /health returns 200 and an 'ok' status without identity."""
     with TestClient(app) as client:
         response = client.get("/health")
 

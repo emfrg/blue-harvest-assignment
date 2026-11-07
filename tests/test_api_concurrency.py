@@ -1,3 +1,9 @@
+"""Exercise overlapping API calls and a held SQLite write lock.
+
+The requests share a temporary database. The coordination helper changes when
+calls continue, while the real user lookup and database writes still run.
+"""
+
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, Queue
 from threading import Barrier
@@ -9,13 +15,21 @@ from app.database import create_database_engine
 
 
 def synchronize_first_reads(monkeypatch):
+    """Make the first two operations wait for each other after reading the user.
+
+    Temporarily replace check_user with a wrapper that runs the real lookup.
+    The first two calls meet at a barrier, then continue together. Later calls,
+    including database retries, do not wait.
+    """
     original = operations.check_user
     barrier = Barrier(2)
+    # Only two calls may wait at the barrier; a database retry must continue.
     first_reads = Queue()
     first_reads.put(True)
     first_reads.put(True)
 
     def check_user_together(*args):
+        """Check the user and let the first two calls wait for each other."""
         original(*args)
         try:
             first_reads.get_nowait()
@@ -28,9 +42,17 @@ def synchronize_first_reads(monkeypatch):
 
 @pytest.mark.parametrize("same_key", [True, False])
 def test_competing_submissions_save_one_request(api_client, monkeypatch, same_key):
+    """Check that competing submissions leave one stored request.
+
+    Send the same payload twice. With the same key, expect one 201 and one
+    200 with identical response bodies. With different keys, expect one 201
+    and one 409 because only one request may be pending for the application.
+    In both cases, history must contain exactly one request.
+    """
     synchronize_first_reads(monkeypatch)
 
     def send(key):
+        """Submit with the chosen key and return the HTTP response."""
         return api_client.post(
             "/requests",
             headers={"X-User-Id": "1", "Idempotency-Key": key},
@@ -42,6 +64,8 @@ def test_competing_submissions_save_one_request(api_client, monkeypatch, same_ke
     keys = ["first", "first" if same_key else "second"]
     with ThreadPoolExecutor(max_workers=2) as workers:
         responses = list(workers.map(send, keys))
+    # Matching keys must return the same request; distinct keys must conflict.
+    # Neither case may create a second pending request. (FR-05, FR-14, QR-02)
     assert sorted(response.status_code for response in responses) == (
         [200, 201] if same_key else [201, 409]
     )
@@ -54,6 +78,13 @@ def test_competing_submissions_save_one_request(api_client, monkeypatch, same_ke
 
 
 def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
+    """Check that competing reviewers cannot overwrite each other's decision.
+
+    Send approval and decline for the same pending request. Exactly one call
+    must return 200 and the other 409. The saved record must match the
+    successful response, including its reviewer. The current approval must
+    contain this request's discount only if approval succeeded.
+    """
     created = api_client.post(
         "/requests",
         headers={"X-User-Id": "1", "Idempotency-Key": "first"},
@@ -62,6 +93,7 @@ def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
     synchronize_first_reads(monkeypatch)
 
     def send(decision):
+        """Send a (reviewer ID, outcome) pair and return the HTTP response."""
         user_id, outcome = decision
         return api_client.post(
             f"/requests/{created['id']}/decision",
@@ -72,6 +104,8 @@ def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as workers:
         responses = list(workers.map(send, [(3, "APPROVED"), (4, "DECLINED")]))
     assert sorted(response.status_code for response in responses) == [200, 409]
+    # Either reviewer may finish first. The other decision must not replace
+    # the successful call's recorded outcome. (FR-08, QR-02)
     winner = next(
         response.json() for response in responses if response.status_code == 200
     )
@@ -90,11 +124,18 @@ def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
 def test_busy_database_returns_503_without_reserving_submission_key(
     api_client, api_database
 ):
+    """Check the API's failure and retry behavior when SQLite is locked.
+
+    Hold a SQLite write transaction open while submitting a request. Expect
+    503 with the busy message and no saved request. After the lock is released,
+    the same key and payload must succeed with 201.
+    """
     engine = create_database_engine(api_database)
     headers = {"X-User-Id": "1", "Idempotency-Key": "first"}
     body = {"application_id": 1, "discount_bps": 25, "reason": "Competitive offer"}
     try:
         with engine.begin() as connection:
+            # Updating a value to itself acquires a write lock without changing it.
             connection.exec_driver_sql("UPDATE users SET role = role WHERE id = 1")
             response = api_client.post("/requests", headers=headers, json=body)
             assert response.status_code == 503
