@@ -8,7 +8,11 @@ from app.main import create_app
 
 @pytest.fixture
 def database_engine(tmp_path):
-    # Create a temporary SQLite database for testing.
+    """Provide an engine for temporary tables used by database tests.
+
+    Each test gets a separate SQLite file with parent and child tables.
+    Close pooled connections after the test, including when it fails.
+    """
     engine = create_database_engine(tmp_path / "test.sqlite3")
     try:
         with engine.begin() as connection:
@@ -25,6 +29,12 @@ def database_engine(tmp_path):
 
 @pytest.fixture
 def api_database(tmp_path):
+    """Create the API's tables and sample records in a temporary SQLite file.
+
+    Returns:
+        The database file's path. Passing it to create_app keeps the test's
+        records separate from the development database.
+    """
     path = tmp_path / "api.sqlite3"
     create_database(path)
     return path
@@ -32,5 +42,10 @@ def api_database(tmp_path):
 
 @pytest.fixture
 def api_client(api_database):
+    """Provide an API client for the test's temporary SQLite database.
+
+    The client calls FastAPI directly without starting a server. Its context
+    manager runs the application's startup and shutdown code.
+    """
     with TestClient(create_app(api_database)) as client:
         yield client

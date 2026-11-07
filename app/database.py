@@ -7,28 +7,34 @@ DATABASE_PATH = Path(__file__).resolve().parent.parent / "data" / "requests.sqli
 
 
 def enable_foreign_keys(connection, _connection_record):
-    # SQLite requires this setting to be changed outside a transaction.
+    """Enable foreign-key checks on each new SQLite connection."""
+    # SQLite only allows foreign-key checks to be enabled outside a transaction.
+    # Temporarily enable autocommit to apply this setting.
     original_autocommit = connection.autocommit
     connection.autocommit = True
     cursor = connection.cursor()
     try:
-        cursor.execute("PRAGMA foreign_keys=ON")  # enabling foreign key support
+        cursor.execute("PRAGMA foreign_keys=ON")
     finally:
         cursor.close()
         connection.autocommit = original_autocommit
 
 
 def create_database_engine(database_path=DATABASE_PATH):
+    """Create a SQLAlchemy engine for the SQLite database file."""
     database_path = Path(database_path).resolve()
     database_path.parent.mkdir(parents=True, exist_ok=True)
 
     engine = create_engine(
         f"sqlite:///{database_path}",
+        # Keep writes in a transaction until commit or rollback.
         connect_args={"autocommit": False},
     )
+    # Run enable_foreign_keys whenever this engine opens a new connection.
     event.listen(engine, "connect", enable_foreign_keys)
     return engine
 
 
 def create_session_factory(engine):
+    """Return a callable that creates sessions for this engine."""
     return sessionmaker(bind=engine)
