@@ -1,0 +1,29 @@
+# Setup from the repository root with Python 3.13:
+# python3.13 -m venv .venv
+# .venv/bin/python -m pip install -r requirements.txt
+# .venv/bin/python -m pre_commit install
+# Run all checks: .venv/bin/python -m pre_commit run --all-files
+# Fix formatting: .venv/bin/python -m ruff format app tests
+
+# Use the tools installed in .venv. Check app and tests without changing files.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: Ruff formatting
+        entry: .venv/bin/python -m ruff format --check app tests
+        language: unsupported
+        pass_filenames: false
+        always_run: true
+      - id: ruff-check
+        name: Ruff linting
+        entry: .venv/bin/python -m ruff check app tests
+        language: unsupported
+        pass_filenames: false
+        always_run: true
+      - id: mypy
+        name: mypy type checking
+        entry: .venv/bin/python -m mypy
+        language: unsupported
+        pass_filenames: false
+        always_run: true

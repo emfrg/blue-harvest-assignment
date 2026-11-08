@@ -1,8 +1,10 @@
+from pathlib import Path
+
 from app.database import DATABASE_PATH, create_database_engine, create_session_factory
 from app.models import Base, MortgageApplication, User
 
 
-def create_database(database_path=DATABASE_PATH):
+def create_database(database_path: str | Path = DATABASE_PATH) -> None:
     """Set up the database tables and sample mortgage applications and users."""
     engine = create_database_engine(database_path)
     try:

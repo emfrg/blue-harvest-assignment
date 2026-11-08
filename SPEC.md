@@ -10,6 +10,7 @@
 | 1.1 | 2026-11-05 12:10:36 +01:00 | Clarified FR-03 and AC-03 for the final local deliverable: the health check and generated API documentation are accessible without user identity; mortgage operations require identity and role checks. This allows local health checks and API exploration without granting access to mortgage records or decisions. | Codex, recording project-author decision | Approved by project author |
 | 1.2 | 2026-11-05 14:03:37 +01:00 | Added QR-03, QR-04 and QR-05 for consistent formatting, linting and static type checking to support maintainability. These requirements apply to the completed deliverable; tool selection and configuration remain for the technical plan. | Codex, recording project-author approval | Approved by project author |
 | 1.3 | 2026-11-05 14:24:52 +01:00 | Added QR-06 to make formatting, linting and static type checks part of the local commit workflow through pre-commit hooks. Failed checks must block the commit, supporting QR-03, QR-04 and QR-05. | Codex, recording project-author approval | Approved by project author |
+| 1.4 | 2026-11-08 18:25:45 +01:00 | Clarified QR-02 and the database-access assumption for AC-17 to AC-19. Added AC-22 for temporary failure when the database stays busy, so the specification includes the failure outcome already documented by the API. Duplicate prevention and saved-decision protection remain required. | Codex, recording project-author approval | Approved by project author |
 
 The timestamps for revisions 0.1 and 0.2 were recovered from the file's creation and last-modification times, respectively, before this timestamp correction.
 
@@ -182,7 +183,7 @@ These are requirements chosen for this assignment to support reliable operation.
 | ID | Requirement | Verification approach |
 |---|---|---|
 | QR-01 | Successfully saved requests, decisions and retry-key associations must survive a normal service restart without changed values. | Restart the service and repeat retrieval and submission-retry checks. |
-| QR-02 | Two concurrent submissions or decisions must preserve the single-pending-request, single-decision and retry guarantees. | Send competing calls and inspect the resulting records. |
+| QR-02 | Overlapping submissions or decisions must not create duplicate requests, allow more than one pending request per application, or overwrite a saved decision. A call that cannot finish because the database stays busy must report temporary unavailability without leaving partial changes. | Send overlapping calls and inspect the resulting records. Also keep the database busy through the retry limit, check that the failed call saves nothing, and repeat the call after database access is available. |
 | QR-03 | Python application and test code must follow a consistent formatting configuration. | The formatter’s check reports no required changes. |
 | QR-04 | Python application and test code must have no unresolved findings under the agreed linting rules. | The linter passes using the recorded configuration. |
 | QR-05 | Python code within the agreed annotation and checking scope must pass static type checking without reported type errors. | Review annotation coverage and run the selected type checker. |
@@ -193,6 +194,13 @@ These requirements apply to the completed deliverable. The technical plan will d
 For this assignment, the service must run locally without paid services or private infrastructure. Setup instructions and seed data must make the acceptance scenarios reproducible.
 
 ## 6. Acceptance scenarios and behaviour checklist
+
+Calls overlap when one starts before another has finished. The successful
+outcomes in AC-17 to AC-19 assume database access allows the operations to finish
+within the retry limit. If the database stays busy, a call reports temporary
+unavailability under QR-02; AC-22 checks this outcome. Previously saved requests
+and decisions remain intact. Another overlapping call may have succeeded even
+when one call reports temporary unavailability.
 
 | ID | Given / when | Expected result | Requirements |
 |---|---|---|---|
@@ -217,6 +225,7 @@ For this assignment, the service must run locally without paid services or priva
 | AC-19 | Two authorised reviewers concurrently submit opposing decisions for the same pending request. | Exactly one decision succeeds and is recorded. If approval succeeds, the requested discount becomes current. If decline succeeds, the previous approved discount, or absence of an approval, is preserved. | FR-06, FR-07, FR-08, FR-09, FR-12, QR-02 |
 | AC-20 | The service restarts after successful submissions and decisions. | Previously saved records remain retrievable; retry matching still returns the original request. | QR-01 |
 | AC-21 | An otherwise valid submission has no retry key, an empty key or a key containing only whitespace. Check each case separately. | The submission is rejected without creating a request. | FR-16 |
+| AC-22 | An existing application has no pending request. Another operation keeps the database busy through the retry limit while a valid new submission is attempted. Release the database lock and repeat the submission with the same key and details. | The failed call reports temporary unavailability and saves no request or submission-key association. Once database access is available, repeating the submission creates one pending request. | FR-01, QR-02 |
 
 ## 7. Delivery success criteria
 

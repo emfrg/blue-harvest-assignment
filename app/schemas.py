@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 SQLITE_MAX_INTEGER = 9223372036854775807
 
 

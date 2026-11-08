@@ -5,13 +5,13 @@ can isolate connection setup, commits, rollbacks and foreign-key enforcement.
 """
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from app.database import create_session_factory
 
 
-def test_database_connection(database_engine):
+def test_database_connection(database_engine: Engine) -> None:
     """Check that a connection can execute SQL and return its result.
 
     SELECT 1 asks SQLite to return the number 1; no table data is needed.
@@ -21,7 +21,7 @@ def test_database_connection(database_engine):
         assert result == 1
 
 
-def test_committed_data_survives_reconnection(database_engine):
+def test_committed_data_survives_reconnection(database_engine: Engine) -> None:
     """Check that a committed row can be read through a new connection.
 
     Save a parent row, close the pooled connection, then read the row again
@@ -38,7 +38,7 @@ def test_committed_data_survives_reconnection(database_engine):
         assert result == 1
 
 
-def test_failed_transaction_is_rolled_back(database_engine):
+def test_failed_transaction_is_rolled_back(database_engine: Engine) -> None:
     """Check that an error cancels writes made in the transaction.
 
     Insert a parent and deliberately raise an exception before commit.
@@ -55,7 +55,7 @@ def test_failed_transaction_is_rolled_back(database_engine):
         assert count == 0
 
 
-def test_foreign_key_rejects_missing_parent(database_engine):
+def test_foreign_key_rejects_missing_parent(database_engine: Engine) -> None:
     """Check that new connections enforce foreign-key constraints.
 
     Try to save a child whose parent does not exist. SQLite must raise an
@@ -66,7 +66,9 @@ def test_foreign_key_rejects_missing_parent(database_engine):
     sessions = create_session_factory(database_engine)
     with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
         with sessions.begin() as session:
-            session.execute(text("INSERT INTO children (id, parent_id) VALUES (1, 999)"))
+            session.execute(
+                text("INSERT INTO children (id, parent_id) VALUES (1, 999)")
+            )
 
     with sessions.begin() as session:
         count = session.execute(text("SELECT COUNT(*) FROM children")).scalar_one()

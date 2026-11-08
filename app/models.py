@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy import (
     CheckConstraint,
-    Column,
     ForeignKey,
     Index,
     Integer,
@@ -10,14 +10,14 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def current_utc_time():
+def current_utc_time() -> str:
     """Return the current UTC date and time as text."""
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
@@ -25,14 +25,14 @@ def current_utc_time():
 class MortgageApplication(Base):
     __tablename__ = "mortgage_applications"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True)
-    role = Column(Text, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
 
     __table_args__ = (
         CheckConstraint(
@@ -46,18 +46,26 @@ class DiscountRequest(Base):
 
     __tablename__ = "requests"
 
-    id = Column(Integer, primary_key=True)
-    application_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("mortgage_applications.id"), nullable=False
     )
-    discount_bps = Column(Integer, nullable=False)
-    reason = Column(Text, nullable=False)
-    submitted_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    submitted_at = Column(Text, nullable=False, default=current_utc_time)
-    status = Column(Text, nullable=False, default="PENDING")
-    retry_key = Column(Text, nullable=False)
-    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    decided_at = Column(Text, nullable=True)
+    discount_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    submitted_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    submitted_at: Mapped[str] = mapped_column(
+        Text, nullable=False, default=current_utc_time
+    )
+    status: Mapped[Literal["PENDING", "APPROVED", "DECLINED"]] = mapped_column(
+        Text, nullable=False, default="PENDING"
+    )
+    retry_key: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    decided_at: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         # SQLite integer columns can also store decimals; check the type. (FR-02)

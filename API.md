@@ -1,8 +1,8 @@
 # API contract and lifecycle
 
-This document describes the implemented HTTP contract for `SPEC.md` revision 1.3.
+This document describes the implemented HTTP contract for `SPEC.md` revision 1.4.
 The specification defines required behaviour; this document records fields,
-routes, validation, state changes and transaction handling for Task 3.
+routes, validation, state changes and transaction handling.
 The executable schemas are in `app/schemas.py` and appear in `/docs` and
 `/openapi.json`.
 
@@ -12,6 +12,9 @@ The executable schemas are in `app/schemas.py` and appear in `/docs` and
 |---|---|---|
 | 0.1 | 2026-11-05 17:08:48 +01:00 | Initial implemented contract, ready for author review. Business requirements remain those in specification revision 1.3. |
 | 0.2 | 2026-11-06 08:37:22 +01:00 | Author-approved response change: omit `retry_key` from request responses so they focus on submitted details and decisions. The key remains required on submission and stored for duplicate protection. Clarify submission descriptions and session-factory access. Specification revision 1.3 still applies. |
+| 0.3 | 2026-11-07 17:02:58 +01:00 | Document SQLite concurrency limits and what PostgreSQL would change. No API behaviour changes. |
+| 0.4 | 2026-11-08 18:17:46 +01:00 | Remove internal planning references from the introduction and verification section. No API behaviour changes. |
+| 0.5 | 2026-11-08 18:25:45 +01:00 | Align the overlapping-call and busy-database descriptions with specification revision 1.4, QR-02, AC-17 to AC-19, and AC-22. Link AC-22 to the existing busy-database test. No API behaviour changes. |
 
 ## Data model and audit history
 
@@ -197,15 +200,40 @@ retry the complete transaction, with a maximum of three attempts and waits of
 50 ms and 100 ms. The connection uses SQLite's five-second lock timeout.
 Unrelated database errors are not retried or treated as business conflicts.
 
+The outcomes below assume database access allows the operations to finish within
+the retry limit, as stated in SPEC's AC-17 to AC-19. If SQLite remains busy after
+three attempts, the affected call returns `503` without saving partial changes
+(QR-02, AC-22). Another overlapping call may have succeeded. Resending a submission
+with its original key and details returns the existing request if it was saved.
+
 | Competing operations | Required result |
 |---|---|
 | Identical submissions, same user and key | One `201`, one `200`, one stored request. |
 | Different submission keys for one application | One `201`, one `409`, one pending request. |
 | Two decisions on one pending request | One `200`, one `409`, one preserved decision. |
 
-## Task 3 evidence
+### SQLite concurrency limits and PostgreSQL
 
-| Completion criterion | Implementation and checks |
+SQLite allows only one write transaction at a time, even when the changes concern
+different mortgage applications. Adding API workers does not remove this limit.
+See [SQLite's isolation documentation](https://www.sqlite.org/isolation.html).
+
+The existing tests cover two overlapping calls and a held write lock.
+Performance under sustained traffic has not been measured.
+
+PostgreSQL can handle writes to different rows concurrently. Updates to the same
+row can still wait for each other, and deadlocks can require a transaction retry.
+See [PostgreSQL's locking documentation](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS).
+
+The unique submission key, single pending request rule and conditional `PENDING`
+update would still be needed. Using PostgreSQL would require adapting the
+SQLite-specific connection settings, constraint and index definitions, and error
+handling, then running the transaction and concurrency tests against PostgreSQL.
+PostgreSQL has not been tested in this project.
+
+## Implementation and verification
+
+| Area | Implementation and checks |
 |---|---|
 | Fields, relationships, constraints and auditable history | `app/models.py`; history operation and response schema; model tests and API history/restart tests. |
 | Allowed transitions and treatment of edits/revisions | Lifecycle table above; `decide_request` in `app/operations.py`; final-decision, rejected-edit and replacement tests. |
@@ -213,9 +241,11 @@ Unrelated database errors are not retried or treated as business conflicts.
 
 `tests/test_api.py` covers AC-01 to AC-16, AC-20 and AC-21.
 `tests/test_api_concurrency.py` covers AC-17 to AC-19 by holding both calls after
-their first database read, then allowing them to compete. It also checks a real
-SQLite write lock returns `503` without saving a submission. Test files use
-isolated SQLite databases; the author's manual API review is separate.
+their first database read, then allowing them to compete. Its
+`test_busy_database_returns_503_without_reserving_submission_key` checks AC-22:
+a held SQLite write lock causes `503` without saving a submission or reserving
+its key; resending succeeds after the lock is released. Test files use isolated
+SQLite databases; the author's manual API review is separate.
 
 Framework references: [FastAPI response models](https://fastapi.tiangolo.com/tutorial/response-model/),
 [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/), and

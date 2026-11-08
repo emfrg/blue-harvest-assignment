@@ -4,10 +4,13 @@ Invalid records reach SQLite without passing through API validation. Each test
 uses its own database, created by model_engine below.
 """
 
+from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import Engine, select
 from sqlalchemy.exc import IntegrityError
 
 from app.database import create_database_engine, create_session_factory
@@ -15,7 +18,7 @@ from app.models import Base, DiscountRequest, MortgageApplication, User
 
 
 @pytest.fixture
-def model_engine(tmp_path):
+def model_engine(tmp_path: Path) -> Iterator[Engine]:
     """Provide a temporary database for direct model tests.
 
     Seed two mortgage applications, two relationship managers and one reviewer.
@@ -39,9 +42,9 @@ def model_engine(tmp_path):
         engine.dispose()
 
 
-def example_request(**changes):
+def example_request(**changes: object) -> DiscountRequest:
     """Build an unsaved request with default fields overridden by changes."""
-    fields = {
+    fields: dict[str, object] = {
         "application_id": 1,
         "discount_bps": 25,
         "reason": "Competitive offer",
@@ -52,7 +55,7 @@ def example_request(**changes):
     return DiscountRequest(**fields)
 
 
-def test_request_stores_submitted_fields_and_defaults(model_engine):
+def test_request_stores_submitted_fields_and_defaults(model_engine: Engine) -> None:
     """Check the saved submission fields and model defaults.
 
     Read the row in a new session. Expect the submitted values, a generated
@@ -80,7 +83,7 @@ def test_request_stores_submitted_fields_and_defaults(model_engine):
         assert before <= datetime.fromisoformat(request.submitted_at) <= after
 
 
-def test_retry_key_is_unique_per_user(model_engine):
+def test_retry_key_is_unique_per_user(model_engine: Engine) -> None:
     """Check that a submission key is unique within one user's requests.
 
     Saving the same user's key for a different application must fail.
@@ -105,7 +108,7 @@ def test_retry_key_is_unique_per_user(model_engine):
         assert len(requests) == 2
 
 
-def test_second_pending_request_is_rejected(model_engine):
+def test_second_pending_request_is_rejected(model_engine: Engine) -> None:
     """Check that an application cannot have two pending requests.
 
     Save a request, then try another with a different submission key.
@@ -126,7 +129,9 @@ def test_second_pending_request_is_rejected(model_engine):
 
 
 @pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
-def test_retry_key_remains_reserved_after_decision(model_engine, outcome):
+def test_retry_key_remains_reserved_after_decision(
+    model_engine: Engine, outcome: Literal["APPROVED", "DECLINED"]
+) -> None:
     """Check that a decision does not make a user's submission key reusable.
 
     Start with an approved or declined request. An insert using its user
@@ -150,7 +155,9 @@ def test_retry_key_remains_reserved_after_decision(model_engine, outcome):
 
 
 @pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
-def test_new_request_keeps_previous_request_and_decision(model_engine, outcome):
+def test_new_request_keeps_previous_request_and_decision(
+    model_engine: Engine, outcome: Literal["APPROVED", "DECLINED"]
+) -> None:
     """Check that a new request leaves the previous decision intact.
 
     Approve or decline the first request, then save another pending request
@@ -214,7 +221,9 @@ def test_new_request_keeps_previous_request_and_decision(model_engine, outcome):
         ),
     ],
 )
-def test_database_rejects_invalid_request_records(model_engine, changes, error):
+def test_database_rejects_invalid_request_records(
+    model_engine: Engine, changes: dict[str, object], error: str
+) -> None:
     """Check that SQLite rejects records which violate the model constraints.
 
     Each case changes fields on an otherwise valid request. Expect the named
@@ -229,7 +238,7 @@ def test_database_rejects_invalid_request_records(model_engine, changes, error):
         assert session.scalars(select(DiscountRequest)).all() == []
 
 
-def test_database_rejects_unknown_user_role(model_engine):
+def test_database_rejects_unknown_user_role(model_engine: Engine) -> None:
     """Check that SQLite rejects a user whose role is UNKNOWN."""
     sessions = create_session_factory(model_engine)
     with pytest.raises(IntegrityError, match="valid_user_role"):
