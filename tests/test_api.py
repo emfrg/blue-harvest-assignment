@@ -46,15 +46,16 @@ def history(client, application_id=1):
     return response.json()["requests"]
 
 
-def approval(client):
-    """Read application 1's approval and assert that the call succeeds.
+def approval(client, application_id=1):
+    """Read the application's approval and assert that the call succeeds.
 
     Returns:
         A dictionary containing request_id and discount_bps, or None when
         the application has no approved request.
     """
     response = client.get(
-        "/applications/1/approved-discount", headers={"X-User-Id": "1"}
+        f"/applications/{application_id}/approved-discount",
+        headers={"X-User-Id": "1"},
     )
     assert response.status_code == 200
     return response.json()["approved_discount"]
@@ -368,6 +369,42 @@ def test_replacement_preserves_previous_approval_until_new_approval(api_client):
     replacement = decide(api_client, third["id"], "APPROVED").json()
     assert approval(api_client) == {"request_id": third["id"], "discount_bps": 40}
     assert history(api_client) == [approved, declined, replacement]
+
+
+def test_history_and_approval_only_include_the_requested_application(api_client):
+    """Check that one application's records never appear in another's lookups.
+
+    Approve 25 basis points for application 1. Application 2 must still have
+    empty history and no approved discount. Then approve 60 for application 2.
+    Each application must return only its own request, decision and discount.
+    """
+    # Both requests come from the same manager. Each lookup must still return
+    # only the selected application's records. (FR-11, FR-12)
+    first = submit(api_client, application_id=1, discount_bps=25)
+    assert first.status_code == 201
+    first_decision = decide(api_client, first.json()["id"], "APPROVED")
+    assert first_decision.status_code == 200
+    first_approved = first_decision.json()
+
+    assert history(api_client, application_id=2) == []
+    assert approval(api_client, application_id=2) is None
+
+    second = submit(api_client, key="second", application_id=2, discount_bps=60)
+    assert second.status_code == 201
+    second_decision = decide(api_client, second.json()["id"], "APPROVED")
+    assert second_decision.status_code == 200
+    second_approved = second_decision.json()
+
+    assert history(api_client, application_id=1) == [first_approved]
+    assert history(api_client, application_id=2) == [second_approved]
+    assert approval(api_client, application_id=1) == {
+        "request_id": first_approved["id"],
+        "discount_bps": 25,
+    }
+    assert approval(api_client, application_id=2) == {
+        "request_id": second_approved["id"],
+        "discount_bps": 60,
+    }
 
 
 @pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
