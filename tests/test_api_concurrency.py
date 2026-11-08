@@ -77,6 +77,64 @@ def test_competing_submissions_save_one_request(api_client, monkeypatch, same_ke
         assert responses[0].json() == responses[1].json()
 
 
+def test_competing_submissions_with_same_key_and_different_discounts(
+    api_client, monkeypatch
+):
+    """Check that a shared key cannot save two different submissions.
+
+    Submit discounts of 25 and 40 at the same time using the same user and
+    key. Either may succeed. The other must report conflicting details, and
+    history must contain only the successful submission. Retrying each body
+    must preserve that result.
+    """
+    synchronize_first_reads(monkeypatch)
+
+    def send(discount_bps):
+        """Submit the chosen discount with the shared user and key."""
+        return api_client.post(
+            "/requests",
+            headers={"X-User-Id": "1", "Idempotency-Key": "shared"},
+            json={
+                "application_id": 1,
+                "discount_bps": discount_bps,
+                "reason": "Competitive offer",
+            },
+        )
+
+    discounts = [25, 40]
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        responses = list(workers.map(send, discounts))
+    assert sorted(response.status_code for response in responses) == [201, 409]
+
+    for discount, response in zip(discounts, responses):
+        if response.status_code == 201:
+            winner = response.json()
+            assert winner["discount_bps"] == discount
+        else:
+            assert response.json() == {
+                "detail": "Retry key already used with different details"
+            }
+
+    # The key must identify the saved submission, even after both calls finish.
+    # Conflicting details must never replace it. (FR-14, FR-15, QR-02)
+    for discount in discounts:
+        repeated = send(discount)
+        if discount == winner["discount_bps"]:
+            assert repeated.status_code == 200
+            assert repeated.json() == winner
+        else:
+            assert repeated.status_code == 409
+            assert repeated.json() == {
+                "detail": "Retry key already used with different details"
+            }
+
+    saved = api_client.get(
+        "/applications/1/requests", headers={"X-User-Id": "1"}
+    )
+    assert saved.status_code == 200
+    assert saved.json()["requests"] == [winner]
+
+
 def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
     """Check that competing reviewers cannot overwrite each other's decision.
 

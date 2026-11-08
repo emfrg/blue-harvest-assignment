@@ -12,6 +12,7 @@ The executable schemas are in `app/schemas.py` and appear in `/docs` and
 |---|---|---|
 | 0.1 | 2026-11-05 17:08:48 +01:00 | Initial implemented contract, ready for author review. Business requirements remain those in specification revision 1.3. |
 | 0.2 | 2026-11-06 08:37:22 +01:00 | Author-approved response change: omit `retry_key` from request responses so they focus on submitted details and decisions. The key remains required on submission and stored for duplicate protection. Clarify submission descriptions and session-factory access. Specification revision 1.3 still applies. |
+| 0.3 | 2026-11-07 17:02:58 +01:00 | Document SQLite concurrency limits and what PostgreSQL would change. No API behaviour changes. |
 
 ## Data model and audit history
 
@@ -202,6 +203,27 @@ Unrelated database errors are not retried or treated as business conflicts.
 | Identical submissions, same user and key | One `201`, one `200`, one stored request. |
 | Different submission keys for one application | One `201`, one `409`, one pending request. |
 | Two decisions on one pending request | One `200`, one `409`, one preserved decision. |
+
+### SQLite concurrency limits and PostgreSQL
+
+SQLite allows only one write transaction at a time, even when the changes concern
+different mortgage applications. Adding API workers does not remove this limit.
+See [SQLite's isolation documentation](https://www.sqlite.org/isolation.html).
+
+The competing-operation results above assume database access becomes available
+within the retry limit. If SQLite stays busy, the API returns `503` after three
+attempts. The existing tests cover two overlapping calls and a held write lock.
+Performance under sustained traffic has not been measured.
+
+PostgreSQL can handle writes to different rows concurrently. Updates to the same
+row can still wait for each other, and deadlocks can require a transaction retry.
+See [PostgreSQL's locking documentation](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS).
+
+The unique submission key, single pending request rule and conditional `PENDING`
+update would still be needed. Using PostgreSQL would require adapting the
+SQLite-specific connection settings, constraint and index definitions, and error
+handling, then running the transaction and concurrency tests against PostgreSQL.
+PostgreSQL has not been tested in this project.
 
 ## Task 3 evidence
 
