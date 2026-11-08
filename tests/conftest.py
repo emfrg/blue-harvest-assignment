@@ -1,5 +1,9 @@
+from collections.abc import Iterator
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
 from app.database import create_database_engine
 from app.init_db import create_database
@@ -7,7 +11,7 @@ from app.main import create_app
 
 
 @pytest.fixture
-def database_engine(tmp_path):
+def database_engine(tmp_path: Path) -> Iterator[Engine]:
     """Provide an engine for temporary tables used by database tests.
 
     Each test gets a separate SQLite file with parent and child tables.
@@ -28,7 +32,7 @@ def database_engine(tmp_path):
 
 
 @pytest.fixture
-def api_database(tmp_path):
+def api_database(tmp_path: Path) -> Path:
     """Create the API's tables and sample records in a temporary SQLite file.
 
     Returns:
@@ -41,7 +45,7 @@ def api_database(tmp_path):
 
 
 @pytest.fixture
-def api_client(api_database):
+def api_client(api_database: Path) -> Iterator[TestClient]:
     """Provide an API client for the test's temporary SQLite database.
 
     The client calls FastAPI directly without starting a server. Its context

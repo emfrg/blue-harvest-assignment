@@ -1,4 +1,7 @@
+from typing import cast
+
 from fastapi import APIRouter, Depends, Header, Path, Request, Response
+from sqlalchemy.orm import Session, sessionmaker
 
 from app import operations
 from app.schemas import (
@@ -11,7 +14,6 @@ from app.schemas import (
     Submission,
 )
 
-
 # Add these shared error responses to the API documentation.
 # The checks that trigger these errors are in operations.py.
 router = APIRouter(
@@ -23,14 +25,14 @@ router = APIRouter(
 )
 
 
-def get_session_factory(request: Request):
+def get_session_factory(request: Request) -> sessionmaker[Session]:
     """Return the session factory stored on the application at startup."""
-    return request.app.state.sessions
+    return cast(sessionmaker[Session], request.app.state.sessions)
 
 
 def get_user_id(
     user_id: int = Header(alias="X-User-Id", gt=0, le=SQLITE_MAX_INTEGER),
-):
+) -> int:
     """Return the user ID supplied in the X-User-Id header."""
     return user_id
 
@@ -62,9 +64,9 @@ def submit(
             "and details to return the existing request's current state."
         ),
     ),
-    user_id=Depends(get_user_id),
-    sessions=Depends(get_session_factory),
-):
+    user_id: int = Depends(get_user_id),
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> RequestDetails:
     """Submit a discount request for review and return its details."""
     request, status = operations.run_operation(
         sessions, operations.submit_request, user_id, retry_key, body
@@ -85,9 +87,9 @@ def submit(
 )
 def read(
     request_id: int = Path(gt=0, le=SQLITE_MAX_INTEGER),
-    user_id=Depends(get_user_id),
-    sessions=Depends(get_session_factory),
-):
+    user_id: int = Depends(get_user_id),
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> RequestDetails:
     """Return the request's submitted details, status and decision."""
     return operations.run_operation(
         sessions, operations.read_request, user_id, request_id
@@ -107,9 +109,9 @@ def read(
 def decide(
     body: Decision,
     request_id: int = Path(gt=0, le=SQLITE_MAX_INTEGER),
-    user_id=Depends(get_user_id),
-    sessions=Depends(get_session_factory),
-):
+    user_id: int = Depends(get_user_id),
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> RequestDetails:
     """Approve or decline a pending request and return its details."""
     return operations.run_operation(
         sessions, operations.decide_request, user_id, request_id, body.outcome
@@ -127,9 +129,9 @@ def decide(
 )
 def history(
     application_id: int = Path(gt=0, le=SQLITE_MAX_INTEGER),
-    user_id=Depends(get_user_id),
-    sessions=Depends(get_session_factory),
-):
+    user_id: int = Depends(get_user_id),
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> ApplicationHistory:
     """Return all requests and decisions for a mortgage application."""
     return operations.run_operation(
         sessions, operations.read_history, user_id, application_id
@@ -147,9 +149,9 @@ def history(
 )
 def approval(
     application_id: int = Path(gt=0, le=SQLITE_MAX_INTEGER),
-    user_id=Depends(get_user_id),
-    sessions=Depends(get_session_factory),
-):
+    user_id: int = Depends(get_user_id),
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> CurrentApproval:
     """Return the application's current approved discount, if any."""
     return operations.run_operation(
         sessions, operations.read_approval, user_id, application_id

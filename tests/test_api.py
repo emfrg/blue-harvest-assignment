@@ -5,21 +5,43 @@ applications and users. Requests run through FastAPI without a separate server.
 """
 
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import TypedDict, Unpack, cast
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response
 
 from app.init_db import create_database
 from app.main import create_app
 
 
-def submit(client, key="submission-1", user_id=1, **changes):
+class SubmissionChanges(TypedDict, total=False):
+    """Optional test fields whose values may deliberately violate API rules."""
+
+    application_id: object
+    discount_bps: object
+    reason: object
+    submitted_by: object
+    status: object
+
+
+def submit(
+    client: TestClient,
+    key: str = "submission-1",
+    user_id: int = 1,
+    **changes: Unpack[SubmissionChanges],
+) -> Response:
     """Send a test submission and return the HTTP response.
 
     Use the default request fields unless changes supplies replacements.
     The caller can choose the user and key to exercise permissions and retries.
     """
-    body = {"application_id": 1, "discount_bps": 25, "reason": "Competitive offer"}
+    body: dict[str, object] = {
+        "application_id": 1,
+        "discount_bps": 25,
+        "reason": "Competitive offer",
+    }
     body.update(changes)
     return client.post(
         "/requests",
@@ -28,7 +50,9 @@ def submit(client, key="submission-1", user_id=1, **changes):
     )
 
 
-def decide(client, request_id, outcome, user_id=3):
+def decide(
+    client: TestClient, request_id: int, outcome: str, user_id: int = 3
+) -> Response:
     """Send a decision as the chosen user and return the HTTP response."""
     return client.post(
         f"/requests/{request_id}/decision",
@@ -37,16 +61,16 @@ def decide(client, request_id, outcome, user_id=3):
     )
 
 
-def history(client, application_id=1):
+def history(client: TestClient, application_id: int = 1) -> list[dict[str, object]]:
     """Assert a successful history lookup and return its list of requests."""
     response = client.get(
         f"/applications/{application_id}/requests", headers={"X-User-Id": "1"}
     )
     assert response.status_code == 200
-    return response.json()["requests"]
+    return cast(list[dict[str, object]], response.json()["requests"])
 
 
-def approval(client, application_id=1):
+def approval(client: TestClient, application_id: int = 1) -> dict[str, int] | None:
     """Read the application's approval and assert that the call succeeds.
 
     Returns:
@@ -58,10 +82,12 @@ def approval(client, application_id=1):
         headers={"X-User-Id": "1"},
     )
     assert response.status_code == 200
-    return response.json()["approved_discount"]
+    return cast(dict[str, int] | None, response.json()["approved_discount"])
 
 
-def test_submission_records_original_details_and_can_be_read(api_client):
+def test_submission_records_original_details_and_can_be_read(
+    api_client: TestClient,
+) -> None:
     """Check that a manager can create and retrieve a pending request.
 
     Expect HTTP 201 with the original submission details, a generated ID and
@@ -120,7 +146,9 @@ def test_submission_records_original_details_and_can_be_read(api_client):
         {"status": "APPROVED"},
     ],
 )
-def test_invalid_submission_saves_nothing_and_does_not_reserve_key(api_client, changes):
+def test_invalid_submission_saves_nothing_and_does_not_reserve_key(
+    api_client: TestClient, changes: SubmissionChanges
+) -> None:
     """Check that invalid fields are rejected without consuming the key.
 
     Cases cover invalid discounts, reasons, application IDs and fields that
@@ -135,7 +163,9 @@ def test_invalid_submission_saves_nothing_and_does_not_reserve_key(api_client, c
 
 
 @pytest.mark.parametrize("missing_field", ["application_id", "discount_bps", "reason"])
-def test_submission_requires_all_fields(api_client, missing_field):
+def test_submission_requires_all_fields(
+    api_client: TestClient, missing_field: str
+) -> None:
     """Check that every submission field is mandatory.
 
     Omit application_id, discount_bps or reason in turn. Each call must return
@@ -151,7 +181,9 @@ def test_submission_requires_all_fields(api_client, missing_field):
 
 
 @pytest.mark.parametrize("key", [None, "", "   "])
-def test_submission_requires_nonblank_key(api_client, key):
+def test_submission_requires_nonblank_key(
+    api_client: TestClient, key: str | None
+) -> None:
     """Check that a submission needs a non-blank Idempotency-Key header.
 
     Try a missing, empty or whitespace-only key. Each call must return 422
@@ -169,7 +201,7 @@ def test_submission_requires_nonblank_key(api_client, key):
     assert history(api_client) == []
 
 
-def test_malformed_json_is_rejected(api_client):
+def test_malformed_json_is_rejected(api_client: TestClient) -> None:
     """Check that an incomplete JSON body returns 422 and creates no request."""
     response = api_client.post(
         "/requests",
@@ -188,8 +220,8 @@ def test_malformed_json_is_rejected(api_client):
     "user_id, expected", [(None, 422), ("bad", 422), ("0", 422), ("999", 403)]
 )
 def test_identity_is_required_for_every_mortgage_operation(
-    api_client, user_id, expected
-):
+    api_client: TestClient, user_id: str | None, expected: int
+) -> None:
     """Check that every mortgage endpoint requires a valid local user ID.
 
     A missing, malformed or non-positive header must return 422. A numeric
@@ -199,7 +231,7 @@ def test_identity_is_required_for_every_mortgage_operation(
     headers = {"Idempotency-Key": "key"}
     if user_id is not None:
         headers["X-User-Id"] = user_id
-    calls = [
+    calls: list[tuple[str, str, dict[str, object] | None]] = [
         (
             "POST",
             "/requests",
@@ -217,7 +249,7 @@ def test_identity_is_required_for_every_mortgage_operation(
     assert history(api_client) == []
 
 
-def test_roles_cannot_submit_or_decide_for_each_other(api_client):
+def test_roles_cannot_submit_or_decide_for_each_other(api_client: TestClient) -> None:
     """Check that managers and reviewers cannot perform each other's actions.
 
     A reviewer cannot submit, and a manager cannot approve. Expect 403 and
@@ -231,7 +263,9 @@ def test_roles_cannot_submit_or_decide_for_each_other(api_client):
     assert decide(api_client, 999, "APPROVED", user_id=1).status_code == 403
 
 
-def test_unknown_records_are_distinct_from_empty_history_and_no_approval(api_client):
+def test_unknown_records_are_distinct_from_empty_history_and_no_approval(
+    api_client: TestClient,
+) -> None:
     """Distinguish an empty application from a record that does not exist.
 
     An application with no requests returns an empty history and no approval.
@@ -252,7 +286,9 @@ def test_unknown_records_are_distinct_from_empty_history_and_no_approval(api_cli
 
 
 @pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
-def test_decision_records_reviewer_and_time_and_cannot_be_replaced(api_client, outcome):
+def test_decision_records_reviewer_and_time_and_cannot_be_replaced(
+    api_client: TestClient, outcome: str
+) -> None:
     """Check approval and decline, recorded decision details and later reads.
 
     Approve or decline a pending request. The response must retain the
@@ -294,7 +330,9 @@ def test_decision_records_reviewer_and_time_and_cannot_be_replaced(api_client, o
         {"outcome": "APPROVED", "reviewer_id": 4},
     ],
 )
-def test_invalid_decision_does_not_change_request(api_client, body):
+def test_invalid_decision_does_not_change_request(
+    api_client: TestClient, body: dict[str, object]
+) -> None:
     """Check that invalid decision fields leave the request unchanged.
 
     Reject missing or unsupported outcomes and attempts to supply a discount
@@ -309,7 +347,9 @@ def test_invalid_decision_does_not_change_request(api_client, body):
 
 
 @pytest.mark.parametrize("outcome", [None, "APPROVED", "DECLINED"])
-def test_submitted_requests_cannot_be_edited_or_deleted(api_client, outcome):
+def test_submitted_requests_cannot_be_edited_or_deleted(
+    api_client: TestClient, outcome: str | None
+) -> None:
     """Check that the API rejects edits and deletions of submitted requests.
 
     For pending, approved and declined requests, PUT, PATCH and DELETE must
@@ -330,7 +370,9 @@ def test_submitted_requests_cannot_be_edited_or_deleted(api_client, outcome):
     assert history(api_client) == [original]
 
 
-def test_changed_request_needs_decline_then_new_submission(api_client):
+def test_changed_request_needs_decline_then_new_submission(
+    api_client: TestClient,
+) -> None:
     """Check that declining a pending request allows a changed submission.
 
     A second manager is blocked while the first request is pending. After
@@ -349,7 +391,9 @@ def test_changed_request_needs_decline_then_new_submission(api_client):
     assert history(api_client) == [declined, second]
 
 
-def test_replacement_preserves_previous_approval_until_new_approval(api_client):
+def test_replacement_preserves_previous_approval_until_new_approval(
+    api_client: TestClient,
+) -> None:
     """Check when a replacement request changes the current approved discount.
 
     Start with an approval for 25 basis points. Submitting and then declining
@@ -371,7 +415,9 @@ def test_replacement_preserves_previous_approval_until_new_approval(api_client):
     assert history(api_client) == [approved, declined, replacement]
 
 
-def test_history_and_approval_only_include_the_requested_application(api_client):
+def test_history_and_approval_only_include_the_requested_application(
+    api_client: TestClient,
+) -> None:
     """Check that one application's records never appear in another's lookups.
 
     Approve 25 basis points for application 1. Application 2 must still have
@@ -409,8 +455,8 @@ def test_history_and_approval_only_include_the_requested_application(api_client)
 
 @pytest.mark.parametrize("outcome", ["APPROVED", "DECLINED"])
 def test_matching_retry_returns_current_state_even_when_later_request_is_pending(
-    api_client, outcome
-):
+    api_client: TestClient, outcome: str
+) -> None:
     """Check that matching submissions return the same request's current state.
 
     Repeat a submission while it is pending, then again after approval or
@@ -436,8 +482,8 @@ def test_matching_retry_returns_current_state_even_when_later_request_is_pending
     [{"application_id": 2}, {"discount_bps": 40}, {"reason": "Different offer"}],
 )
 def test_same_key_with_different_details_conflicts_before_and_after_decision(
-    api_client, changes
-):
+    api_client: TestClient, changes: SubmissionChanges
+) -> None:
     """Check that a saved submission key cannot be used with changed details.
 
     Change the application, discount or reason in separate cases. Reusing
@@ -452,7 +498,9 @@ def test_same_key_with_different_details_conflicts_before_and_after_decision(
     assert history(api_client) == [decided]
 
 
-def test_retry_key_is_scoped_to_user_and_reason_is_compared_exactly(api_client):
+def test_retry_key_is_scoped_to_user_and_reason_is_compared_exactly(
+    api_client: TestClient,
+) -> None:
     """Check that keys belong to users and that reason text is compared exactly.
 
     Changing only spaces or letter case must return 409 for the same user's
@@ -469,7 +517,9 @@ def test_retry_key_is_scoped_to_user_and_reason_is_compared_exactly(api_client):
     assert second.json()["id"] != first["id"]
 
 
-def test_restart_preserves_decision_history_and_retry_mapping(api_database):
+def test_restart_preserves_decision_history_and_retry_mapping(
+    api_database: Path,
+) -> None:
     """Check that saved data survives closing and recreating the API app.
 
     Save an approval and a later pending request, then open a fresh app using
@@ -489,7 +539,9 @@ def test_restart_preserves_decision_history_and_retry_mapping(api_database):
         assert repeated.json() == decided
 
 
-def test_initialisation_can_repeat_without_resetting_requests(api_client, api_database):
+def test_initialisation_can_repeat_without_resetting_requests(
+    api_client: TestClient, api_database: Path
+) -> None:
     """Check that rerunning database setup preserves an existing request.
 
     Create a pending request, run create_database again on the same file,
@@ -500,7 +552,7 @@ def test_initialisation_can_repeat_without_resetting_requests(api_client, api_da
     assert history(api_client) == [original]
 
 
-def test_public_docs_describe_inputs_outputs_and_errors(api_client):
+def test_public_docs_describe_inputs_outputs_and_errors(api_client: TestClient) -> None:
     """Check public access and the generated API contract.
 
     Fetch health, Swagger UI and OpenAPI without identity headers. Check the

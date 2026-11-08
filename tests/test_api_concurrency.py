@@ -5,16 +5,20 @@ calls continue, while the real user lookup and database writes still run.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from queue import Empty, Queue
 from threading import Barrier
 
 import pytest
+from fastapi.testclient import TestClient
+from httpx2 import Response
+from sqlalchemy.orm import Session
 
 from app import operations
 from app.database import create_database_engine
 
 
-def synchronize_first_reads(monkeypatch):
+def synchronize_first_reads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the first two operations wait for each other after reading the user.
 
     Temporarily replace check_user with a wrapper that runs the real lookup.
@@ -24,13 +28,15 @@ def synchronize_first_reads(monkeypatch):
     original = operations.check_user
     barrier = Barrier(2)
     # Only two calls may wait at the barrier; a database retry must continue.
-    first_reads = Queue()
+    first_reads: Queue[bool] = Queue()
     first_reads.put(True)
     first_reads.put(True)
 
-    def check_user_together(*args):
+    def check_user_together(
+        session: Session, user_id: int, required_role: str | None = None
+    ) -> None:
         """Check the user and let the first two calls wait for each other."""
-        original(*args)
+        original(session, user_id, required_role)
         try:
             first_reads.get_nowait()
         except Empty:
@@ -41,7 +47,9 @@ def synchronize_first_reads(monkeypatch):
 
 
 @pytest.mark.parametrize("same_key", [True, False])
-def test_competing_submissions_save_one_request(api_client, monkeypatch, same_key):
+def test_competing_submissions_save_one_request(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch, same_key: bool
+) -> None:
     """Check that competing submissions leave one stored request.
 
     Send the same payload twice. With the same key, expect one 201 and one
@@ -51,7 +59,7 @@ def test_competing_submissions_save_one_request(api_client, monkeypatch, same_ke
     """
     synchronize_first_reads(monkeypatch)
 
-    def send(key):
+    def send(key: str) -> Response:
         """Submit with the chosen key and return the HTTP response."""
         return api_client.post(
             "/requests",
@@ -80,8 +88,8 @@ def test_competing_submissions_save_one_request(api_client, monkeypatch, same_ke
 
 
 def test_competing_submissions_with_same_key_and_different_discounts(
-    api_client, monkeypatch
-):
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Check that a shared key cannot save two different submissions.
 
     Submit discounts of 25 and 40 at the same time using the same user and
@@ -91,7 +99,7 @@ def test_competing_submissions_with_same_key_and_different_discounts(
     """
     synchronize_first_reads(monkeypatch)
 
-    def send(discount_bps):
+    def send(discount_bps: int) -> Response:
         """Submit the chosen discount with the shared user and key."""
         return api_client.post(
             "/requests",
@@ -108,7 +116,7 @@ def test_competing_submissions_with_same_key_and_different_discounts(
         responses = list(workers.map(send, discounts))
     assert sorted(response.status_code for response in responses) == [201, 409]
 
-    for discount, response in zip(discounts, responses):
+    for discount, response in zip(discounts, responses, strict=True):
         if response.status_code == 201:
             winner = response.json()
             assert winner["discount_bps"] == discount
@@ -135,7 +143,9 @@ def test_competing_submissions_with_same_key_and_different_discounts(
     assert saved.json()["requests"] == [winner]
 
 
-def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
+def test_competing_decisions_preserve_one_outcome(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Check that competing reviewers cannot overwrite each other's decision.
 
     Send approval and decline for the same pending request. Exactly one call
@@ -150,7 +160,7 @@ def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
     ).json()
     synchronize_first_reads(monkeypatch)
 
-    def send(decision):
+    def send(decision: tuple[int, str]) -> Response:
         """Send a (reviewer ID, outcome) pair and return the HTTP response."""
         user_id, outcome = decision
         return api_client.post(
@@ -180,8 +190,8 @@ def test_competing_decisions_preserve_one_outcome(api_client, monkeypatch):
 
 
 def test_busy_database_returns_503_without_reserving_submission_key(
-    api_client, api_database
-):
+    api_client: TestClient, api_database: Path
+) -> None:
     """Check the API's failure and retry behavior when SQLite is locked.
 
     Hold a SQLite write transaction open while submitting a request. Expect
