@@ -57,7 +57,9 @@ def test_competing_submissions_save_one_request(api_client, monkeypatch, same_ke
             "/requests",
             headers={"X-User-Id": "1", "Idempotency-Key": key},
             json={
-                "application_id": 1, "discount_bps": 25, "reason": "Competitive offer"
+                "application_id": 1,
+                "discount_bps": 25,
+                "reason": "Competitive offer",
             },
         )
 
@@ -128,9 +130,7 @@ def test_competing_submissions_with_same_key_and_different_discounts(
                 "detail": "Retry key already used with different details"
             }
 
-    saved = api_client.get(
-        "/applications/1/requests", headers={"X-User-Id": "1"}
-    )
+    saved = api_client.get("/applications/1/requests", headers={"X-User-Id": "1"})
     assert saved.status_code == 200
     assert saved.json()["requests"] == [winner]
 

@@ -200,7 +200,8 @@ def test_identity_is_required_for_every_mortgage_operation(
         headers["X-User-Id"] = user_id
     calls = [
         (
-            "POST", "/requests",
+            "POST",
+            "/requests",
             {"application_id": 1, "discount_bps": 25, "reason": "Offer"},
         ),
         ("GET", "/requests/1", None),
@@ -489,18 +490,29 @@ def test_public_docs_describe_inputs_outputs_and_errors(api_client):
         submission["responses"]
     )
     assert {parameter["name"] for parameter in submission["parameters"]} == {
-        "X-User-Id", "Idempotency-Key",
+        "X-User-Id",
+        "Idempotency-Key",
     }
     models = schema["components"]["schemas"]
     assert set(models["Submission"]["required"]) == {
-        "application_id", "discount_bps", "reason",
+        "application_id",
+        "discount_bps",
+        "reason",
     }
     assert models["Submission"]["additionalProperties"] is False
     assert models["Decision"]["properties"]["outcome"]["enum"] == [
-        "APPROVED", "DECLINED",
+        "APPROVED",
+        "DECLINED",
     ]
     assert set(models["RequestDetails"]["required"]) == {
-        "id", "application_id", "discount_bps", "reason", "submitted_by",
-        "submitted_at", "status", "reviewer_id", "decided_at"
+        "id",
+        "application_id",
+        "discount_bps",
+        "reason",
+        "submitted_by",
+        "submitted_at",
+        "status",
+        "reviewer_id",
+        "decided_at",
     }
     assert "retry_key" not in models["RequestDetails"]["properties"]

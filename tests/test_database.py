@@ -66,7 +66,9 @@ def test_foreign_key_rejects_missing_parent(database_engine):
     sessions = create_session_factory(database_engine)
     with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
         with sessions.begin() as session:
-            session.execute(text("INSERT INTO children (id, parent_id) VALUES (1, 999)"))
+            session.execute(
+                text("INSERT INTO children (id, parent_id) VALUES (1, 999)")
+            )
 
     with sessions.begin() as session:
         count = session.execute(text("SELECT COUNT(*) FROM children")).scalar_one()
