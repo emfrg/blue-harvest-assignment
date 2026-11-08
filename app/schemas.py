@@ -48,5 +48,12 @@ class CurrentApproval(BaseModel):
     approved_discount: ApprovedDiscount | None
 
 
+class DemoUser(BaseModel):
+    """A local user available in the frontend demo's user selector."""
+
+    id: int
+    role: str
+
+
 class ErrorResponse(BaseModel):
     detail: str

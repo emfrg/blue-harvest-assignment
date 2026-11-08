@@ -9,6 +9,7 @@ from app.schemas import (
     ApplicationHistory,
     CurrentApproval,
     Decision,
+    DemoUser,
     ErrorResponse,
     RequestDetails,
     Submission,
@@ -24,6 +25,12 @@ router = APIRouter(
     }
 )
 
+demo_router = APIRouter(
+    prefix="/demo",
+    tags=["Frontend demo"],
+    responses={503: {"model": ErrorResponse, "description": "Database remains busy"}},
+)
+
 
 def get_session_factory(request: Request) -> sessionmaker[Session]:
     """Return the session factory stored on the application at startup."""
@@ -35,6 +42,36 @@ def get_user_id(
 ) -> int:
     """Return the user ID supplied in the X-User-Id header."""
     return user_id
+
+
+@demo_router.get(
+    "/users",
+    response_model=list[DemoUser],
+    summary="List demo users",
+    description="Public. Returns stored user IDs and roles for the frontend demo.",
+)
+def demo_users(
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> list[DemoUser]:
+    """Return the available users for the frontend demo."""
+    return operations.run_operation(sessions, operations.list_demo_users)
+
+
+@demo_router.get(
+    "/applications",
+    response_model=list[int],
+    summary="List demo applications",
+    description="Either role. Returns stored application IDs for the frontend demo.",
+    responses={403: {"model": ErrorResponse, "description": "Unknown local user"}},
+)
+def demo_applications(
+    user_id: int = Depends(get_user_id),
+    sessions: sessionmaker[Session] = Depends(get_session_factory),
+) -> list[int]:
+    """Return the available mortgage application IDs for the frontend demo."""
+    return operations.run_operation(
+        sessions, operations.list_demo_applications, user_id
+    )
 
 
 @router.post(

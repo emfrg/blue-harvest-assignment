@@ -1,6 +1,6 @@
 # API contract and lifecycle
 
-This document describes the implemented HTTP contract for `SPEC.md` revision 1.4.
+This document describes the implemented HTTP contract for `SPEC.md` revision 1.6.
 The specification defines required behaviour; this document records fields,
 routes, validation, state changes and transaction handling.
 The executable schemas are in `app/schemas.py` and appear in `/docs` and
@@ -15,6 +15,7 @@ The executable schemas are in `app/schemas.py` and appear in `/docs` and
 | 0.3 | 2026-11-07 17:02:58 +01:00 | Document SQLite concurrency limits and what PostgreSQL would change. No API behaviour changes. |
 | 0.4 | 2026-11-08 18:17:46 +01:00 | Remove internal planning references from the introduction and verification section. No API behaviour changes. |
 | 0.5 | 2026-11-08 18:25:45 +01:00 | Align the overlapping-call and busy-database descriptions with specification revision 1.4, QR-02, AC-17 to AC-19, and AC-22. Link AC-22 to the existing busy-database test. No API behaviour changes. |
+| 0.6 | 2026-11-08 21:51:48 +01:00 | Add GET /demo/users and GET /demo/applications for the frontend demo, implementing SPEC revision 1.6, FR-17 and FR-18. Document their responses and access rules. |
 
 ## Data model and audit history
 
@@ -86,6 +87,10 @@ user. This identity is trusted locally, with existence and role checks. It is
 not production authentication. Health, interactive docs and the generated schema
 remain public, as specified in FR-03.
 
+The additional `/demo/users` route is public. `/demo/applications` requires
+`X-User-Id` with either role. These routes support the frontend demo and are not
+required for the core mortgage workflow.
+
 | Method | Path | Role | Successful response |
 |---|---|---|---|
 | POST | `/requests` | Relationship manager | `201` Request created; `200` existing Request returned. |
@@ -94,6 +99,37 @@ remain public, as specified in FR-03.
 | GET | `/applications/{application_id}/requests` | Either role | `200` History. |
 | GET | `/applications/{application_id}/approved-discount` | Either role | `200` CurrentApproval. |
 | GET | `/health` | Public | `200` with `{"status":"ok"}`. |
+| GET | `/demo/users` | Public | `200` array of DemoUser objects. |
+| GET | `/demo/applications` | Either role | `200` array of application IDs. |
+
+### Frontend demo lists
+
+Both routes read stored records and return them in ascending ID order.
+They take no request body or query parameters and return `[]` when the
+corresponding table is empty. They do not change records.
+
+`GET /demo/users` requires no headers. Each DemoUser object contains only `id`
+(integer) and `role` (string). With the supplied seed records, the response is:
+
+```json
+[
+  {"id": 1, "role": "RELATIONSHIP_MANAGER"},
+  {"id": 2, "role": "RELATIONSHIP_MANAGER"},
+  {"id": 3, "role": "REVIEWER"},
+  {"id": 4, "role": "REVIEWER"}
+]
+```
+
+`GET /demo/applications` requires `X-User-Id`. With the supplied seed records,
+either role receives:
+
+```json
+[1, 2]
+```
+
+A missing or malformed user header returns `422`; an unknown user returns `403`.
+The empty-application response still requires a known user. Both list operations
+use the existing transaction handling and can return `503` if SQLite stays busy.
 
 ## Request and response schemas
 
@@ -239,7 +275,10 @@ PostgreSQL has not been tested in this project.
 | Allowed transitions and treatment of edits/revisions | Lifecycle table above; `decide_request` in `app/operations.py`; final-decision, rejected-edit and replacement tests. |
 | Endpoints, schemas, validation and errors | `app/api.py`, `app/schemas.py`, `/docs`, `/openapi.json`; API validation, access, retry and error tests. |
 
-`tests/test_api.py` covers AC-01 to AC-16, AC-20 and AC-21.
+`tests/test_api.py` covers AC-01 to AC-16, AC-20, AC-21 and AC-23 to AC-25.
+The demo tests check stored records beyond the original seed data, empty lists,
+public user listing and application listing for both roles. The existing identity
+test also checks the demo application list.
 `tests/test_api_concurrency.py` covers AC-17 to AC-19 by holding both calls after
 their first database read, then allowing them to compete. Its
 `test_busy_database_returns_503_without_reserving_submission_key` checks AC-22:
