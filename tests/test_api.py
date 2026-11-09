@@ -95,6 +95,9 @@ def test_demo_lists_return_stored_users_and_applications(
 
     Add a user and application to the test database. The user list must work
     without an identity, and either role must be able to list applications.
+
+    SPEC FR-17 and FR-18 require lists from stored data. AC-23 and AC-24
+    define the returned fields and who can retrieve each list.
     """
     engine = create_database_engine(api_database)
     try:
@@ -128,6 +131,9 @@ def test_demo_lists_return_empty_lists_when_records_are_absent(
 
     Keep a user while checking the empty application list, then remove users
     to check the public user list. Both responses must be 200 with [].
+
+    SPEC FR-17 and FR-18 require empty lists when no records exist
+    (the empty-database cases in AC-23 and AC-24).
     """
     engine = create_database_engine(api_database)
     try:
@@ -154,6 +160,9 @@ def test_submission_records_original_details_and_can_be_read(
     Expect HTTP 201 with the original submission details, a generated ID and
     a submission time within the call. Both a manager and a reviewer must
     retrieve the same record, with no decision recorded.
+
+    SPEC AC-01 checks creation under FR-01. The pending-request case in
+    AC-09 checks reading that record under FR-10 and the access rules in FR-03.
     """
     before = datetime.now(UTC)
     response = submit(api_client)
@@ -215,6 +224,10 @@ def test_invalid_submission_saves_nothing_and_does_not_reserve_key(
     Cases cover invalid discounts, reasons, application IDs and fields that
     callers must not supply. Expect HTTP 422 and empty history. A valid
     submission with the same key must then succeed.
+
+    SPEC FR-02 rejects invalid data (AC-02). AC-16 requires a corrected
+    submission to remain possible with the same key. API.md defines the
+    JSON types, storage limits and rejection of extra fields used here.
     """
     response = submit(api_client, **changes)
     assert response.status_code == 422
@@ -231,6 +244,8 @@ def test_submission_requires_all_fields(
 
     Omit application_id, discount_bps or reason in turn. Each call must return
     422 without saving a request.
+
+    Checks the required submission fields in SPEC section 2 and FR-02 (AC-02).
     """
     body = {"application_id": 1, "discount_bps": 25, "reason": "Competitive offer"}
     del body[missing_field]
@@ -249,6 +264,8 @@ def test_submission_requires_nonblank_key(
 
     Try a missing, empty or whitespace-only key. Each call must return 422
     and leave the application's history empty.
+
+    Checks SPEC FR-16 and its acceptance scenario AC-21.
     """
     headers = {"X-User-Id": "1"}
     if key is not None:
@@ -263,7 +280,11 @@ def test_submission_requires_nonblank_key(
 
 
 def test_malformed_json_is_rejected(api_client: TestClient) -> None:
-    """Check that an incomplete JSON body returns 422 and creates no request."""
+    """Check that an incomplete JSON body returns 422 and creates no request.
+
+    Checks API.md's malformed-JSON response, supporting SPEC FR-02's
+    rejection of invalid submissions.
+    """
     response = api_client.post(
         "/requests",
         headers={
@@ -288,6 +309,9 @@ def test_identity_is_required_for_every_mortgage_operation(
     A missing, malformed or non-positive header must return 422. A numeric
     ID that is not in the database must return 403. None of these calls may
     create a request.
+
+    SPEC FR-03 requires a known user for mortgage operations (AC-03).
+    AC-25 applies the same rule to the frontend's application list.
     """
     headers = {"Idempotency-Key": "key"}
     if user_id is not None:
@@ -317,6 +341,8 @@ def test_roles_cannot_submit_or_decide_for_each_other(api_client: TestClient) ->
     A reviewer cannot submit, and a manager cannot approve. Expect 403 and
     leave the submitted request unchanged. A manager's decision must still
     return 403 when its request ID does not exist.
+
+    Checks SPEC FR-03 and AC-03 against the role permissions in section 2.
     """
     assert submit(api_client, user_id=3).status_code == 403
     original = submit(api_client).json()
@@ -333,6 +359,9 @@ def test_unknown_records_are_distinct_from_empty_history_and_no_approval(
     An application with no requests returns an empty history and no approval.
     Unknown request or application IDs return 404, including decisions and
     submissions. A corrected submission can reuse the rejected call's key.
+
+    SPEC AC-11 and AC-13 distinguish no approval from a missing record
+    (FR-12, FR-13). AC-16 checks that a failed submission does not reserve its key.
     """
     assert history(api_client) == []
     assert approval(api_client) is None
@@ -358,6 +387,10 @@ def test_decision_records_reviewer_and_time_and_cannot_be_replaced(
     Further decisions return 409 and leave history unchanged. Reading the
     request must return the saved decision. The approved discount lookup must
     return 25 basis points after approval, or None after decline.
+
+    SPEC AC-06 and AC-07 cover the two outcomes and recorded reviewer/time.
+    AC-08 protects the saved decision; AC-09 checks subsequent reads
+    (FR-06 to FR-10). FR-12 defines the approved-discount result.
     """
     original = submit(api_client).json()
     before = datetime.now(UTC)
@@ -399,6 +432,10 @@ def test_invalid_decision_does_not_change_request(
 
     Reject missing or unsupported outcomes and attempts to supply a discount
     or reviewer in the body. Expect 422 and the original request in history.
+
+    SPEC section 4 permits approval or decline. FR-04 keeps the discount
+    fixed, and FR-09 requires the deciding reviewer's identity. API.md defines
+    the decision body and its rejection of extra fields.
     """
     original = submit(api_client).json()
     response = api_client.post(
@@ -416,6 +453,9 @@ def test_submitted_requests_cannot_be_edited_or_deleted(
 
     For pending, approved and declined requests, PUT, PATCH and DELETE must
     return 405. Reading history must show the original record unchanged.
+
+    SPEC FR-04 and AC-04 prohibit edits. Section 4 requires keeping earlier
+    requests for history; API.md defines 405 for these unsupported methods.
     """
     original = submit(api_client).json()
     if outcome is not None:
@@ -440,6 +480,9 @@ def test_changed_request_needs_decline_then_new_submission(
     A second manager is blocked while the first request is pending. After
     the decline, the same rejected key can create a new pending request with
     a different ID. History must contain both the decline and the new request.
+
+    Checks SPEC AC-05: enforce one pending request (FR-05) and preserve the
+    earlier request and decision when a replacement is submitted (FR-11).
     """
     first = submit(api_client).json()
     # The pending-request limit covers all managers for this application. (FR-05)
@@ -461,6 +504,9 @@ def test_replacement_preserves_previous_approval_until_new_approval(
     Start with an approval for 25 basis points. Submitting and then declining
     a request for 40 must leave 25 current. A later approval for 40 must become
     current, with all three requests and their decisions in history.
+
+    Checks SPEC AC-12's current-discount rule (FR-12) and AC-10's retention
+    of earlier approvals and declines (FR-11).
     """
     first = submit(api_client).json()
     approved = decide(api_client, first["id"], "APPROVED").json()
@@ -485,6 +531,8 @@ def test_history_and_approval_only_include_the_requested_application(
     Approve 25 basis points for application 1. Application 2 must still have
     empty history and no approved discount. Then approve 60 for application 2.
     Each application must return only its own request, decision and discount.
+
+    Checks the application-specific results required by SPEC FR-11 and FR-12.
     """
     # Both requests come from the same manager. Each lookup must still return
     # only the selected application's records. (FR-11, FR-12)
@@ -525,6 +573,8 @@ def test_matching_retry_returns_current_state_even_when_later_request_is_pending
     decline while a newer request is pending. Both retries must return 200
     with the original request ID and its stored state. History must still
     contain only the original request and the newer one.
+
+    Checks SPEC FR-14 and AC-14 across pending, approved and declined states.
     """
     first = submit(api_client).json()
     pending_retry = submit(api_client)
@@ -551,6 +601,8 @@ def test_same_key_with_different_details_conflicts_before_and_after_decision(
     Change the application, discount or reason in separate cases. Reusing
     the original key must return 409 both while pending and after approval.
     History must still contain only the original request and its approval.
+
+    Checks SPEC FR-15 and AC-15 for each submitted field that could change.
     """
     first = submit(api_client).json()
     assert submit(api_client, **changes).status_code == 409
@@ -568,6 +620,9 @@ def test_retry_key_is_scoped_to_user_and_reason_is_compared_exactly(
     Changing only spaces or letter case must return 409 for the same user's
     key. Sending the original text again returns the same request. A different
     user can use the same key for another application and receive a new ID.
+
+    SPEC FR-14 and FR-15 compare the same user's submitted field values.
+    Section 5 defines key ownership; API.md specifies exact text comparison.
     """
     first = submit(api_client, reason=" Offer ").json()
     assert first["reason"] == " Offer "
@@ -587,6 +642,9 @@ def test_restart_preserves_decision_history_and_retry_mapping(
     Save an approval and a later pending request, then open a fresh app using
     the same SQLite file. History, current approval and a matching submission
     retry must return the previously saved values.
+
+    Checks SPEC QR-01 and AC-20 by running app shutdown and startup against
+    the saved database. This test does not restart a separate server process.
     """
     with TestClient(create_app(api_database)) as client:
         first = submit(client).json()
@@ -608,6 +666,9 @@ def test_initialisation_can_repeat_without_resetting_requests(
 
     Create a pending request, run create_database again on the same file,
     and confirm that history still contains the unchanged record.
+
+    Supports the repeatable local setup in SPEC section 7. README.md promises
+    that rerunning setup preserves existing records.
     """
     original = submit(api_client).json()
     create_database(api_database)
@@ -621,6 +682,10 @@ def test_public_docs_describe_inputs_outputs_and_errors(api_client: TestClient) 
     route list, submission headers and response codes, required body fields,
     allowed decision outcomes and public request fields. The retry key stays
     out of the request response schema.
+
+    SPEC section 2 permits public health and documentation access. The schema
+    assertions check that the HTTP contract documented in API.md is exposed
+    correctly for callers using the interactive documentation.
     """
     assert api_client.get("/health").json() == {"status": "ok"}
     assert api_client.get("/docs").status_code == 200

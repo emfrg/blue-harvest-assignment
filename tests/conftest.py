@@ -36,8 +36,8 @@ def api_database(tmp_path: Path) -> Path:
     """Create the API's tables and sample records in a temporary SQLite file.
 
     Returns:
-        The database file's path. Passing it to create_app keeps the test's
-        records separate from the development database.
+        The path to the test database. The api_client fixture gives this path
+        to create_app so API calls use this file instead of data/requests.sqlite3.
     """
     path = tmp_path / "api.sqlite3"
     create_database(path)

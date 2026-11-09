@@ -20,19 +20,21 @@ For each requirements change, record the affected requirement IDs and the reason
 
 The source of the requested capabilities is *Blue Harvest Agentic SDLC Engineering Assignment*. Choices left open by the assignment brief are recorded below as assumptions or business decisions.
 
-The structure is a manual adaptation of [GitHub Spec Kit's feature-specification template](https://github.com/github/spec-kit/blob/ba8363f8ab56b2da456a81299cfdbfee1ef7b871/templates/spec-template.md). It retains user scenarios, acceptance examples, numbered functional requirements, domain concepts, assumptions and success criteria. Explicit quality requirements, decision rationale and revision history are additions for this assignment. Spec Kit was used as reference material; its CLI and automated workflow were not used.
+This project uses **spec-driven development (SDD)**: agree the required behaviour in a written specification, then use it to guide design, implementation and testing. [IBM's overview of SDD](https://www.ibm.com/think/topics/spec-driven-development) and [Microsoft's introduction to SDD and Spec Kit](https://developer.microsoft.com/blog/spec-driven-development-spec-kit/) explain this approach and the value of shared context.
 
-Codex assisted with drafting and checking the requirements against the assignment brief. The project author directed the scope, challenged proposals and requested revisions. For example, the author rejected an AI proposal to prohibit further requests after an approval. The resulting decision permits a new request while preserving the existing approved discount until a replacement is approved. The revision history records the review status of each draft.
+This document is the source of truth for scope, business rules and expected outcomes. Engineers and AI agents use the agreed requirements when starting or resuming work, and code and tests are reviewed against them. Approved requirements changes are recorded here before implementation.
+
+The structure supports this workflow through a manual adaptation of [GitHub Spec Kit's feature-specification template](https://github.com/github/spec-kit/blob/ba8363f8ab56b2da456a81299cfdbfee1ef7b871/templates/spec-template.md). It retains user scenarios, acceptance examples, numbered functional requirements, domain concepts, assumptions and success criteria. Explicit quality requirements, decision rationale and revision history are additions for this assignment. Spec Kit was used as reference material; its CLI and automated workflow were not used.
+
+Codex assisted with drafting and checking the requirements against the assignment brief. The project author directed the scope, reviewed the proposed requirements and approved the decisions. The revision history records the review status of each draft.
 
 ## 1. Purpose and boundaries
 
 This specification defines the requirements and business rules for mortgage pricing exception requests. It covers submitting requests, reviewing them, retrieving approved discounts and inspecting request history.
 
-The core scope includes a locally runnable HTTP API and predefined local users with role checks. Connecting to a company login system and configuring cloud deployment are outside the scope.
-
-A frontend demo is an addition to the core API deliverable. Its interface is developed separately; this specification includes the two supporting read endpoints described below.
-
 A relationship manager submits a request. An authorised reviewer approves or declines it. The mortgage application process can retrieve the current approved discount. Internal users can inspect requests and their decisions.
+
+The core scope includes a locally runnable HTTP API and predefined local users with role checks. Connecting to a company login system and configuring cloud deployment are outside the scope.
 
 The assignment deliverable includes:
 
@@ -43,7 +45,9 @@ The assignment deliverable includes:
 - Protection against duplicate submissions caused by retries.
 - Local setup and seed data sufficient to demonstrate these behaviours.
 
-### Frontend demo additions
+### Frontend demo (extra)
+
+A frontend demo is an addition to the core API deliverable. Its interface is developed separately; this specification includes the two supporting read endpoints described below.
 
 The frontend needs to offer the users and mortgage applications available in the local database:
 
@@ -74,7 +78,7 @@ The following assumptions address details left open by the assignment brief:
 - The project includes sample mortgage applications and sample users for running the service locally. Relationship managers can create discount requests for those mortgage applications.
 - Each user has one role: relationship manager or reviewer.
 - The caller supplies a local user ID. The service checks that this user exists and has the required role, but does not verify who is making the call.
-- System-to-system calls use a predefined local identity for the demonstration.
+- Other programs calling the mortgage endpoints supply a sample user ID in `X-User-Id` and follow the same role checks. For example, a program retrieving an application's approved discount can use either a sample relationship manager or reviewer ID.
 
 ### Submission validation
 
@@ -93,9 +97,9 @@ The following assumptions address details left open by the assignment brief:
 | List mortgage applications for the frontend demo | Either role |
 | List users for the frontend demo | No user identity required |
 
-For the final locally runnable deliverable, `GET /health` and the generated API documentation, including its schema, are accessible without a user identity. The health endpoint returns only `{"status": "ok"}` to confirm that the API responds. Viewing the documentation does not bypass identity and role checks when calling mortgage operations. This decision does not define access policy for a future production deployment.
+For the final locally runnable deliverable, `GET /health` and the generated API documentation, including its schema, are accessible without a user identity. The health endpoint returns only `{"status": "ok"}` to confirm that the API responds. Viewing the documentation does not bypass identity and role checks when calling mortgage operations.
 
-`GET /demo/users` is also accessible without a user identity so the frontend can populate its user selector. It returns only the IDs and roles of local demo users. Choosing a user does not verify the caller's identity. Subsequent mortgage operations, including `GET /demo/applications`, require a known local user and enforce the permitted roles above. Public user listing is a local-demo convenience, not a production access policy.
+`GET /demo/users` is also accessible without a user identity so the frontend can populate its user selector. It returns only the IDs and roles of local demo users. Choosing a user does not verify the caller's identity. Subsequent mortgage operations, including `GET /demo/applications`, require a known local user and enforce the permitted roles above.
 
 ## 3. User scenarios
 
@@ -119,7 +123,7 @@ Acceptance scenarios in section 6 provide their independent checks. Prepared app
 
 The application ID, discount and reason cannot change after submission. A change requires a new request with a new request ID.
 
-**Reason:** an approval must apply to exactly what was reviewed. This resolves the conflicting stakeholder input in favour of preserving the submitted request.
+**Reason:** a reviewer may already be considering a request when the manager wants to change its details. Editing that same request would require tracking versions so both people know which version the reviewer is considering. Keeping the original request unchanged and giving the changed details a new request ID makes that distinction clear.
 
 ### One pending request per application
 
@@ -189,18 +193,18 @@ The assignment brief does not specify a product-specific maximum discount. No au
 
 For retry matching, the submitted fields are the application ID, discount and reason.
 
-Retry matching happens before the restriction on creating another pending request is applied. It continues to work after the original request has been decided.
+After validating the input and checking the user's access, the service checks whether the submission repeats a saved request. If the user, key and submitted details match, it returns that request without creating another. The existing request can be PENDING, APPROVED or DECLINED. Another pending request for the same application does not prevent this retry from returning the saved request.
 
-Rejected submissions do not reserve retry keys. A different key represents a new submission and is subject to the normal creation rules.
+If the service rejects a submission without saving a request, the key can be used again. A reviewer declining a saved request does not free its key. A different key represents a new submission and is subject to the normal creation rules.
 
 ### Additional functional requirements for the frontend demo
 
 | ID | Required behaviour |
 |---|---|
-| FR-17 | `GET /demo/users` must return all stored local demo users, with only their IDs and roles, without requiring a user identity. If no users exist, it must return an empty list. |
-| FR-18 | `GET /demo/applications` must return all stored mortgage application IDs to a known local user with either role. If no applications exist, it must return an empty list. |
+| FR-17 | Listing local demo users must return all stored users, with only their IDs and roles, without requiring a user identity. If no users exist, it must return an empty list. |
+| FR-18 | Listing mortgage applications must return all stored application IDs to a known local user with either role. If no applications exist, it must return an empty list. |
 
-Both endpoints read the current database records without changing them. Their results must reflect the records present, rather than a hardcoded list of sample values. The frontend uses these results to populate its user and application choices.
+Both operations read the current database records without changing them. Their results must reflect the records present, rather than a hardcoded list of sample values. The frontend uses these results to populate its user and application choices.
 
 ### Quality requirements
 
@@ -260,9 +264,9 @@ when one call reports temporary unavailability.
 
 | ID | Given / when | Expected result | Requirements |
 |---|---|---|---|
-| AC-23 | Local demo users have been prepared. Call `GET /demo/users` without supplying a user identity. Also check a database with no users. | Every stored user appears once with only their ID and role; no user identity is required. With no users, the result is an empty list. Stored records are unchanged. | FR-17 |
-| AC-24 | Mortgage applications have been prepared. Call `GET /demo/applications` as a known manager and as a known reviewer. Also check a database with no applications. | Each role can retrieve every stored application ID, including applications with no requests. With no applications, the result is an empty list. Stored records are unchanged. | FR-18, FR-03 |
-| AC-25 | Call `GET /demo/applications` with a missing, malformed or unknown user identity. Check each case separately. | The call is rejected and no application list is returned. Stored records are unchanged. | FR-03, FR-18 |
+| AC-23 | Local demo users have been prepared. Retrieve the user list without supplying a user identity. Also check a database with no users. | Every stored user appears once with only their ID and role; no user identity is required. With no users, the result is an empty list. Stored records are unchanged. | FR-17 |
+| AC-24 | Mortgage applications have been prepared. Retrieve the application list as a known manager and as a known reviewer. Also check a database with no applications. | Each role can retrieve every stored application ID, including applications with no requests. With no applications, the result is an empty list. Stored records are unchanged. | FR-18, FR-03 |
+| AC-25 | Attempt to retrieve the application list with a missing, malformed or unknown user identity. Check each case separately. | The call is rejected and no application list is returned. Stored records are unchanged. | FR-03, FR-18 |
 
 ## 7. Delivery success criteria
 
