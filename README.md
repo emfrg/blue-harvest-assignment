@@ -10,6 +10,10 @@ The steps below take you through submitting a request, approving it and reading
 the result. The agreed requirements and decisions are in [SPEC.md](SPEC.md);
 the endpoint contracts are in [API.md](API.md).
 
+> **→ If you are reviewing this assignment**, please read the
+> [Agentic SDLC Case Study](agentic-sdlc-case-study.md). It explains how
+> spec-driven development was used here and its implications for the AI-assisted SDLC.
+
 An optional browser interface lets you submit and review requests through forms.
 See [Run the Optional Frontend](#run-the-optional-frontend) to use it with this API.
 
