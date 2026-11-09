@@ -352,9 +352,11 @@ a response, send the same user, key and body again.
 | That user and key already have a saved request, but the body differs. | `409`; the saved request is unchanged. |
 | That user and key have no saved request. | The API attempts a new submission, applying the usual validation and pending-request rules. |
 
-For example, repeating the original submission after its approval returns that
-request with status `APPROVED`. A matching retry also works while a later request
-is pending.
+For example, a manager submits a request for 25 basis points and a reviewer
+approves it. The manager then submits a new request for 40, which is still
+pending. Resending the original 25-point submission with its original user,
+key and body returns the approved 25-point request. The pending 40-point
+request is unchanged because this retry does not create another request.
 
 A submission rejected without saving a request does not reserve its key.
 
@@ -439,7 +441,8 @@ instead of being rejected as a new pending request.
 Conflicts with the two uniqueness rules above trigger a new transaction so the
 operation can read the request saved by another call. SQLite busy errors also
 retry the whole transaction, with waits of 50 ms and 100 ms. There are at most
-three attempts, and connections use SQLite's default five-second lock timeout.
+three attempts, and connections use the Python SQLite driver's default
+five-second lock timeout.
 Unrelated database errors are raised immediately. If a uniqueness conflict still
 cannot be resolved on the last attempt, it is raised as an internal error; only
 the busy-database case is converted to `503`.
@@ -472,7 +475,8 @@ PostgreSQL. PostgreSQL has not been tested in this project.
 | Stored fields, defaults and database constraints. | [tests/test_models.py](tests/test_models.py) |
 | Connection setup, saved data after reconnection and transaction rollback. | [tests/test_database.py](tests/test_database.py) |
 
-The concurrency test `test_busy_database_returns_503_without_reserving_submission_key`
+For example, `test_busy_database_returns_503_without_reserving_submission_key`
 holds a write lock, checks that a submission returns `503` without saving a request,
 then checks that resending succeeds after the lock is released. This covers AC-22.
+
 All these tests use temporary SQLite databases.

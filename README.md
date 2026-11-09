@@ -20,10 +20,18 @@ You need:
 - **Git** to clone the repository. See the [Git downloads](https://git-scm.com/downloads/).
 - **A browser**, if you want to try the API through its interactive documentation.
 
-The API and its database run entirely on your computer. No cloud account,
+The API and its database run entirely locally on your system. No cloud account,
 paid service or separate database installation is needed.
 
 **Install uv on macOS (Terminal)**
+
+If you already use Homebrew, run:
+
+```bash
+brew install uv
+```
+
+Alternatively, use uv's standalone installer:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -74,12 +82,16 @@ uv run python -m app.init_db
 ```
 
 Expect `Database ready:` followed by the path to `data/requests.sqlite3`.
-This creates the tables, two sample mortgage applications and four sample users.
-It does not create discount requests.
+If the SQLite database file does not exist, this command creates it. It also
+sets up the tables and adds two sample mortgage applications and four sample
+users. It does not create discount requests.
 
 Run this setup before using the mortgage endpoints. Rerunning it adds missing
 sample records and preserves existing data. It does not update existing sample
 records or migrate tables after a model change. The database file is ignored by Git.
+
+To remove previous requests and start again, follow
+[Reset the Local Database](#reset-the-local-database).
 
 ### 4. Start the API
 
@@ -132,7 +144,8 @@ select **Execute**. Check the HTTP status and JSON body under **Server response*
 The walkthrough assumes application `1` has no pending request. If you repeat
 it, choose unused keys for both submissions, such as `readme-25-2` and
 `readme-40-2`. If a request is already pending, see the pending-request entry
-under [Troubleshooting](#troubleshooting).
+under [Troubleshooting](#troubleshooting). To repeat the walkthrough from scratch,
+you can [reset the local database](#reset-the-local-database) first.
 
 ### 1. Submit a Discount Request
 
@@ -200,6 +213,42 @@ from the database instead of keeping hardcoded lists:
 
 In `/docs`, these endpoints are grouped under **Frontend demo**. You can complete
 the request and review workflow above without using them.
+
+## Reset the Local Database
+
+Use these steps when you want to start the walkthrough again with fresh data.
+This deletes all local database records, including requests, decisions and
+submission keys. Setup then recreates the sample applications and users.
+Running `init_db` on its own preserves existing records.
+
+1. Stop the API with `Ctrl+C` in its terminal. Close the database in any SQLite
+   browser you have open.
+2. From the repository root, delete the database file using the command for
+   your system.
+
+**macOS (Terminal)**
+
+```bash
+rm data/requests.sqlite3
+```
+
+**Windows (PowerShell)**
+
+```powershell
+Remove-Item data/requests.sqlite3
+```
+
+3. Recreate the database and start the API again:
+
+```sh
+uv run python -m app.init_db
+uv run uvicorn app.main:app --reload --reload-dir app
+```
+
+The database now contains the two sample applications and four sample users,
+with no discount requests or saved submission keys. Open `/docs` again and
+start at [Submit a Discount Request](#1-submit-a-discount-request). You can
+use `readme-25-1` again because the previous data has been removed.
 
 ## Run Tests and Quality Checks
 
