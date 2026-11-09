@@ -1,6 +1,6 @@
 # API contract and lifecycle
 
-This document describes the implemented HTTP contract for `SPEC.md` revision 1.6.
+This document describes the implemented HTTP contract for `SPEC.md` revision 1.4.
 The specification defines required behaviour; this document records fields,
 routes, validation, state changes and transaction handling.
 The executable schemas are in `app/schemas.py` and appear in `/docs` and
@@ -8,39 +8,38 @@ The executable schemas are in `app/schemas.py` and appear in `/docs` and
 
 ## Revision history
 
-| Revision | Timestamp (Europe/Amsterdam) | Change |
-|---|---|---|
-| 0.1 | 2026-11-05 17:08:48 +01:00 | Initial implemented contract, ready for author review. Business requirements remain those in specification revision 1.3. |
-| 0.2 | 2026-11-06 08:37:22 +01:00 | Author-approved response change: omit `retry_key` from request responses so they focus on submitted details and decisions. The key remains required on submission and stored for duplicate protection. Clarify submission descriptions and session-factory access. Specification revision 1.3 still applies. |
-| 0.3 | 2026-11-07 17:02:58 +01:00 | Document SQLite concurrency limits and what PostgreSQL would change. No API behaviour changes. |
-| 0.4 | 2026-11-08 18:17:46 +01:00 | Remove internal planning references from the introduction and verification section. No API behaviour changes. |
-| 0.5 | 2026-11-08 18:25:45 +01:00 | Align the overlapping-call and busy-database descriptions with specification revision 1.4, QR-02, AC-17 to AC-19, and AC-22. Link AC-22 to the existing busy-database test. No API behaviour changes. |
-| 0.6 | 2026-11-08 21:51:48 +01:00 | Add GET /demo/users and GET /demo/applications for the frontend demo, implementing SPEC revision 1.6, FR-17 and FR-18. Document their responses and access rules. |
+| Revision | Timestamp (Europe/Amsterdam) | Change                                                                                                                                                                                                                                                                                                       |
+| -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0.1      | 2026-11-05 17:08:48 +01:00   | Initial implemented contract, ready for author review. Business requirements remain those in specification revision 1.3.                                                                                                                                                                                     |
+| 0.2      | 2026-11-06 08:37:22 +01:00   | Author-approved response change: omit `retry_key` from request responses so they focus on submitted details and decisions. The key remains required on submission and stored for duplicate protection. Clarify submission descriptions and session-factory access. Specification revision 1.3 still applies. |
+| 0.3      | 2026-11-07 17:02:58 +01:00   | Document SQLite concurrency limits and what PostgreSQL would change. No API behaviour changes.                                                                                                                                                                                                               |
+| 0.4      | 2026-11-08 18:17:46 +01:00   | Remove internal planning references from the introduction and verification section. No API behaviour changes.                                                                                                                                                                                                |
+| 0.5      | 2026-11-08 18:25:45 +01:00   | Align the overlapping-call and busy-database descriptions with specification revision 1.4, QR-02, AC-17 to AC-19, and AC-22. Link AC-22 to the existing busy-database test. No API behaviour changes.                                                                                                        |
 
 ## Data model and audit history
 
-| Table | Fields and relationships |
-|---|---|
-| `mortgage_applications` | `id`: integer primary key identifying a predefined application. |
-| `users` | `id`: integer primary key; required `role`: `RELATIONSHIP_MANAGER` or `REVIEWER`. |
-| `requests` | Fields below. `application_id` references a mortgage application; `submitted_by` and `reviewer_id` reference users. |
+| Table                   | Fields and relationships                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `mortgage_applications` | `id`: integer primary key identifying a predefined application.                                                     |
+| `users`                 | `id`: integer primary key; required `role`: `RELATIONSHIP_MANAGER` or `REVIEWER`.                                   |
+| `requests`              | Fields below. `application_id` references a mortgage application; `submitted_by` and `reviewer_id` reference users. |
 
 Each request retains its original submission and its one final decision.
 Submission and decision timestamps are assigned by the API in UTC, stored and
 returned as ISO 8601 text with microseconds and a `+00:00` offset.
 
-| Stored request field | Type | Rule |
-|---|---|---|
-| `id` | Integer | Database-generated primary key. |
-| `application_id` | Integer | Existing mortgage application; cannot change. |
-| `discount_bps` | Integer | Positive whole number; cannot change. |
-| `reason` | String | Non-blank submission reason; cannot change. |
-| `submitted_by` | Integer | Checked relationship-manager identity; cannot change. |
-| `submitted_at` | Timestamp string | Submission time; cannot change. |
-| `status` | String | `PENDING`, `APPROVED` or `DECLINED`. |
-| `retry_key` | String | Non-blank submission key; cannot change. |
-| `reviewer_id` | Integer or null | Null while pending; checked reviewer after a decision. |
-| `decided_at` | Timestamp string or null | Null while pending; assigned with the decision. |
+| Stored request field | Type                     | Rule                                                   |
+| -------------------- | ------------------------ | ------------------------------------------------------ |
+| `id`                 | Integer                  | Database-generated primary key.                        |
+| `application_id`     | Integer                  | Existing mortgage application; cannot change.          |
+| `discount_bps`       | Integer                  | Positive whole number; cannot change.                  |
+| `reason`             | String                   | Non-blank submission reason; cannot change.            |
+| `submitted_by`       | Integer                  | Checked relationship-manager identity; cannot change.  |
+| `submitted_at`       | Timestamp string         | Submission time; cannot change.                        |
+| `status`             | String                   | `PENDING`, `APPROVED` or `DECLINED`.                   |
+| `retry_key`          | String                   | Non-blank submission key; cannot change.               |
+| `reviewer_id`        | Integer or null          | Null while pending; checked reviewer after a decision. |
+| `decided_at`         | Timestamp string or null | Null while pending; assigned with the decision.        |
 
 `app/models.py` defines foreign keys, allowed-role/status checks, a positive
 integer discount check, and a check requiring decision fields to match status.
@@ -60,13 +59,13 @@ against someone directly editing the local SQLite file.
 
 ## Allowed transitions and changes
 
-| Starting state | Action | Result |
-|---|---|---|
-| No request | Submit valid details | New request ID, `PENDING`. |
-| `PENDING` | Approve | `APPROVED`, reviewer and decision time saved together. |
-| `PENDING` | Decline | `DECLINED`, reviewer and decision time saved together. |
-| `APPROVED` or `DECLINED` | Any further decision, including the same outcome | `409`; the first decision remains unchanged. |
-| Any state | PUT, PATCH or DELETE a request | `405`; no edit or delete operation exists. |
+| Starting state           | Action                                           | Result                                                 |
+| ------------------------ | ------------------------------------------------ | ------------------------------------------------------ |
+| No request               | Submit valid details                             | New request ID, `PENDING`.                             |
+| `PENDING`                | Approve                                          | `APPROVED`, reviewer and decision time saved together. |
+| `PENDING`                | Decline                                          | `DECLINED`, reviewer and decision time saved together. |
+| `APPROVED` or `DECLINED` | Any further decision, including the same outcome | `409`; the first decision remains unchanged.           |
+| Any state                | PUT, PATCH or DELETE a request                   | `405`; no edit or delete operation exists.             |
 
 Changed application, discount or reason requires a new submission with a new
 key and request ID. If the application has a pending request, a reviewer must
@@ -87,49 +86,14 @@ user. This identity is trusted locally, with existence and role checks. It is
 not production authentication. Health, interactive docs and the generated schema
 remain public, as specified in FR-03.
 
-The additional `/demo/users` route is public. `/demo/applications` requires
-`X-User-Id` with either role. These routes support the frontend demo and are not
-required for the core mortgage workflow.
-
-| Method | Path | Role | Successful response |
-|---|---|---|---|
-| POST | `/requests` | Relationship manager | `201` Request created; `200` existing Request returned. |
-| GET | `/requests/{request_id}` | Either role | `200` Request. |
-| POST | `/requests/{request_id}/decision` | Reviewer | `200` Request after the decision. |
-| GET | `/applications/{application_id}/requests` | Either role | `200` History. |
-| GET | `/applications/{application_id}/approved-discount` | Either role | `200` CurrentApproval. |
-| GET | `/health` | Public | `200` with `{"status":"ok"}`. |
-| GET | `/demo/users` | Public | `200` array of DemoUser objects. |
-| GET | `/demo/applications` | Either role | `200` array of application IDs. |
-
-### Frontend demo lists
-
-Both routes read stored records and return them in ascending ID order.
-They take no request body or query parameters and return `[]` when the
-corresponding table is empty. They do not change records.
-
-`GET /demo/users` requires no headers. Each DemoUser object contains only `id`
-(integer) and `role` (string). With the supplied seed records, the response is:
-
-```json
-[
-  {"id": 1, "role": "RELATIONSHIP_MANAGER"},
-  {"id": 2, "role": "RELATIONSHIP_MANAGER"},
-  {"id": 3, "role": "REVIEWER"},
-  {"id": 4, "role": "REVIEWER"}
-]
-```
-
-`GET /demo/applications` requires `X-User-Id`. With the supplied seed records,
-either role receives:
-
-```json
-[1, 2]
-```
-
-A missing or malformed user header returns `422`; an unknown user returns `403`.
-The empty-application response still requires a known user. Both list operations
-use the existing transaction handling and can return `503` if SQLite stays busy.
+| Method | Path                                               | Role                 | Successful response                                     |
+| ------ | -------------------------------------------------- | -------------------- | ------------------------------------------------------- |
+| POST   | `/requests`                                        | Relationship manager | `201` Request created; `200` existing Request returned. |
+| GET    | `/requests/{request_id}`                           | Either role          | `200` Request.                                          |
+| POST   | `/requests/{request_id}/decision`                  | Reviewer             | `200` Request after the decision.                       |
+| GET    | `/applications/{application_id}/requests`          | Either role          | `200` History.                                          |
+| GET    | `/applications/{application_id}/approved-discount` | Either role          | `200` CurrentApproval.                                  |
+| GET    | `/health`                                          | Public               | `200` with `{"status":"ok"}`.                           |
 
 ## Request and response schemas
 
@@ -139,7 +103,7 @@ A relationship manager submits an application ID, requested discount and reason.
 The request starts as `PENDING`. The body requires exactly these fields:
 
 ```json
-{"application_id": 1, "discount_bps": 25, "reason": "Competitive offer"}
+{ "application_id": 1, "discount_bps": 25, "reason": "Competitive offer" }
 ```
 
 Submission also requires the `Idempotency-Key` header, described under
@@ -148,7 +112,7 @@ Submission also requires the `Idempotency-Key` header, described under
 Decision requires exactly one field; its value is `APPROVED` or `DECLINED`:
 
 ```json
-{"outcome": "APPROVED"}
+{ "outcome": "APPROVED" }
 ```
 
 Every Request response contains the nine fields shown below. Decision fields are
@@ -157,15 +121,15 @@ is not included in response bodies.
 
 ```json
 {
-  "id": 1,
-  "application_id": 1,
-  "discount_bps": 25,
-  "reason": "Competitive offer",
-  "submitted_by": 1,
-  "submitted_at": "2026-11-05T16:00:00.000000+00:00",
-  "status": "PENDING",
-  "reviewer_id": null,
-  "decided_at": null
+	"id": 1,
+	"application_id": 1,
+	"discount_bps": 25,
+	"reason": "Competitive offer",
+	"submitted_by": 1,
+	"submitted_at": "2026-11-05T16:00:00.000000+00:00",
+	"status": "PENDING",
+	"reviewer_id": null,
+	"decided_at": null
 }
 ```
 
@@ -177,7 +141,10 @@ CurrentApproval has `application_id` (integer) and `approved_discount` (object
 or null). The object contains `request_id` and `discount_bps`, both integers:
 
 ```json
-{"application_id": 1, "approved_discount": {"request_id": 1, "discount_bps": 25}}
+{
+	"application_id": 1,
+	"approved_discount": { "request_id": 1, "discount_bps": 25 }
+}
 ```
 
 An existing application without an approval returns
@@ -194,15 +161,15 @@ Reason and submission key must contain a non-whitespace character. Their values
 are retained exactly, without trimming or changing case. Additional body fields
 are rejected, including caller-supplied reviewer IDs or timestamps.
 
-| HTTP status | Meaning |
-|---|---|
-| `403` | Supplied user is unknown or their role cannot perform the operation. |
-| `404` | Application or request does not exist. Permissions are checked first. |
-| `405` | Method is unsupported, including editing/deleting a request. |
-| `409` | Another request is pending, a key has different submitted details, or a request is already decided. |
-| `422` | Missing/malformed required header, invalid field, missing/extra field, invalid outcome or malformed JSON. |
-| `503` | SQLite remains busy after three transaction attempts. |
-| `500` | Unexpected internal failure; it is not converted into a business conflict. |
+| HTTP status | Meaning                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------- |
+| `403`       | Supplied user is unknown or their role cannot perform the operation.                                      |
+| `404`       | Application or request does not exist. Permissions are checked first.                                     |
+| `405`       | Method is unsupported, including editing/deleting a request.                                              |
+| `409`       | Another request is pending, a key has different submitted details, or a request is already decided.       |
+| `422`       | Missing/malformed required header, invalid field, missing/extra field, invalid outcome or malformed JSON. |
+| `503`       | SQLite remains busy after three transaction attempts.                                                     |
+| `500`       | Unexpected internal failure; it is not converted into a business conflict.                                |
 
 Expected application errors return `{"detail":"message"}`, for example
 `{"detail":"Request already decided"}`. Validation errors use FastAPI's
@@ -242,11 +209,11 @@ three attempts, the affected call returns `503` without saving partial changes
 (QR-02, AC-22). Another overlapping call may have succeeded. Resending a submission
 with its original key and details returns the existing request if it was saved.
 
-| Competing operations | Required result |
-|---|---|
-| Identical submissions, same user and key | One `201`, one `200`, one stored request. |
-| Different submission keys for one application | One `201`, one `409`, one pending request. |
-| Two decisions on one pending request | One `200`, one `409`, one preserved decision. |
+| Competing operations                          | Required result                               |
+| --------------------------------------------- | --------------------------------------------- |
+| Identical submissions, same user and key      | One `201`, one `200`, one stored request.     |
+| Different submission keys for one application | One `201`, one `409`, one pending request.    |
+| Two decisions on one pending request          | One `200`, one `409`, one preserved decision. |
 
 ### SQLite concurrency limits and PostgreSQL
 
@@ -269,16 +236,13 @@ PostgreSQL has not been tested in this project.
 
 ## Implementation and verification
 
-| Area | Implementation and checks |
-|---|---|
-| Fields, relationships, constraints and auditable history | `app/models.py`; history operation and response schema; model tests and API history/restart tests. |
-| Allowed transitions and treatment of edits/revisions | Lifecycle table above; `decide_request` in `app/operations.py`; final-decision, rejected-edit and replacement tests. |
-| Endpoints, schemas, validation and errors | `app/api.py`, `app/schemas.py`, `/docs`, `/openapi.json`; API validation, access, retry and error tests. |
+| Area                                                     | Implementation and checks                                                                                            |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Fields, relationships, constraints and auditable history | `app/models.py`; history operation and response schema; model tests and API history/restart tests.                   |
+| Allowed transitions and treatment of edits/revisions     | Lifecycle table above; `decide_request` in `app/operations.py`; final-decision, rejected-edit and replacement tests. |
+| Endpoints, schemas, validation and errors                | `app/api.py`, `app/schemas.py`, `/docs`, `/openapi.json`; API validation, access, retry and error tests.             |
 
-`tests/test_api.py` covers AC-01 to AC-16, AC-20, AC-21 and AC-23 to AC-25.
-The demo tests check stored records beyond the original seed data, empty lists,
-public user listing and application listing for both roles. The existing identity
-test also checks the demo application list.
+`tests/test_api.py` covers AC-01 to AC-16, AC-20 and AC-21.
 `tests/test_api_concurrency.py` covers AC-17 to AC-19 by holding both calls after
 their first database read, then allowing them to compete. Its
 `test_busy_database_returns_503_without_reserving_submission_key` checks AC-22:
