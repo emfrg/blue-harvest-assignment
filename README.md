@@ -10,6 +10,11 @@ The steps below take you through submitting a request, approving it and reading
 the result. The agreed requirements and decisions are in [SPEC.md](SPEC.md);
 the endpoint contracts are in [API.md](API.md).
 
+An optional browser interface lets you submit and review requests through forms.
+See [Run the Optional Frontend](#run-the-optional-frontend) to use it with this API.
+
+![Reviewer viewing an application's current approved discount and request history](frontend-overview.png)
+
 ## Before You Start
 
 You need:
@@ -214,6 +219,79 @@ from the database instead of keeping hardcoded lists:
 In `/docs`, these endpoints are grouped under **Frontend demo**. You can complete
 the request and review workflow above without using them.
 
+## Run the Optional Frontend
+
+The [frontend](https://github.com/emfrg/blue-harvest-frontend) provides screens
+for submitting requests, approving or declining them, and reading history and
+the current approved discount. It calls the same API used in the walkthrough
+above and uses the same database records.
+
+First complete [Run Locally](#run-locally), including database setup, and keep
+the API running at `http://127.0.0.1:8000` in its terminal.
+
+You also need **Node.js 22 and npm**. If they are not installed, install Node.js
+22 from the [Node.js downloads](https://nodejs.org/en/download); npm is included.
+Check `node --version` and `npm --version` in a new terminal. If the repositories
+are private, your GitHub account needs access to both this repository and the
+frontend repository.
+
+### 1. Download the Frontend
+
+Open a second terminal in the `blue-harvest-assignment` root folder. Run this
+command on either macOS or Windows:
+
+```sh
+git submodule update --init frontend
+```
+
+This downloads the frontend into `frontend/`. A Git submodule keeps its code
+and history in a separate repository while recording the exact version to use
+with this project. After pulling updates to this repository, run the same
+command to load its recorded frontend version.
+
+### 2. Install the Frontend Dependencies
+
+From the same root folder, run:
+
+```sh
+npm --prefix frontend ci
+```
+
+This installs the versions recorded in the frontend's `package-lock.json`.
+The `--prefix frontend` option tells npm to use the `frontend/` folder.
+
+### 3. Start the Frontend
+
+```sh
+npm --prefix frontend run dev
+```
+
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Keep both server terminals
+open while using the application. Press `Ctrl+C` in each terminal to stop its
+server. When returning later, start the API and frontend again; dependency
+installation is only needed when setting up or after dependencies change.
+
+The frontend connects to the API at `http://127.0.0.1:8000` by default. If you
+run the API at another address, follow the `BACKEND_URL` instructions in the
+[frontend README](https://github.com/emfrg/blue-harvest-frontend#3-start-the-frontend).
+
+### 4. Try a Request and Review
+
+1. Select **User 1 — Relationship manager** and sign in.
+2. Open **Application 1**, select **New request**, enter a discount and reason,
+   and submit it. The new request should appear as **PENDING**.
+3. Sign out, then sign in as **User 3 — Reviewer**. Open the same application
+   and select **Review** on the pending request. Approve or decline it.
+4. Inspect the history and approved discount. An approval makes that request's
+   discount current. A decline leaves any earlier approved discount unchanged.
+
+If the application already has a pending request from the API walkthrough,
+review that request first. Use **Refresh** to load changes made in another tab
+or through the API. Both interfaces work with the same saved records.
+
+The [frontend README](https://github.com/emfrg/blue-harvest-frontend#run-tests-and-quality-checks) explains
+its TypeScript checks and browser tests.
+
 ## Reset the Local Database
 
 Use these steps when you want to start the walkthrough again with fresh data.
@@ -346,6 +424,31 @@ decide the same request at the same time. They do not measure how much traffic
 the API can handle. See [API.md](API.md#sqlite-concurrency-limits-and-postgresql)
 for the database limitations and the comparison with PostgreSQL.
 
+## Before Production Use
+
+Before using this with real mortgage applications, I would address the following:
+
+- **Authentication and access.** Connect to the company's login system, apply
+  role checks to verified users, and agree which applications they can access.
+
+- **Containerized deployment.** Package the API and frontend as Docker images.
+  Supply configuration and secrets through the deployment environment, and keep
+  database storage separate from disposable containers.
+
+- **Database updates and recovery.** Test database update scripts against existing
+  records. Schedule backups, test restoration, agree recovery targets, and
+  restrict access to stored request and decision history.
+
+- **Traffic and reliability.** Test the expected workload and evaluate PostgreSQL
+  if SQLite's write limit becomes a problem. Recheck the business rules after any
+  database change, and monitor response times and errors.
+
+- **Real data and pricing rules.** Integrate with the mortgage system and agree
+  the applicable pricing rules, including any maximum discount.
+
+Possible workflow improvements include withdrawing pending requests and recording
+decision reasons. Agree these changes in [SPEC.md](SPEC.md) before implementation.
+
 ## Project Files
 
 | File or directory | Where to look |
@@ -359,6 +462,8 @@ for the database limitations and the comparison with PostgreSQL.
 | [app/models.py](app/models.py) | Database tables, fields and constraints. |
 | [app/database.py](app/database.py), [app/init_db.py](app/init_db.py) | Database connections, sessions and initial setup with sample records. |
 | [tests/](tests/) | API, concurrency, model, database and health checks. Shared fixtures are in `conftest.py`. |
+| [frontend/](https://github.com/emfrg/blue-harvest-frontend) | Optional browser interface, included as a Git submodule. Its README covers frontend development and tests. |
+| [.gitmodules](.gitmodules) | The frontend repository URL and its location in this checkout. |
 | [pyproject.toml](pyproject.toml), [uv.lock](uv.lock), [.python-version](.python-version) | Dependencies, their resolved versions, the Python version, and Ruff/mypy configuration. |
 | [.pre-commit-config.yaml](.pre-commit-config.yaml) | Formatting, linting and type checks run before commits. |
 | [pytest.ini](pytest.ini) | Test discovery and the project import path. |
