@@ -61,6 +61,8 @@ def test_request_stores_submitted_fields_and_defaults(model_engine: Engine) -> N
     Read the row in a new session. Expect the submitted values, a generated
     ID, PENDING status and no decision. The submission time must be UTC and
     fall between the times captured around the save.
+
+    Checks the stored fields and defaults required by SPEC FR-01 (AC-01).
     """
     sessions = create_session_factory(model_engine)
     before = datetime.now(UTC)
@@ -88,6 +90,9 @@ def test_retry_key_is_unique_per_user(model_engine: Engine) -> None:
 
     Saving the same user's key for a different application must fail.
     Another user can use that key for their own request.
+
+    Checks the database constraint supporting SPEC FR-14 and FR-15: a user's
+    key must identify one saved submission.
     """
     sessions = create_session_factory(model_engine)
     with sessions.begin() as session:
@@ -113,6 +118,8 @@ def test_second_pending_request_is_rejected(model_engine: Engine) -> None:
 
     Save a request, then try another with a different submission key.
     SQLite must reject the second insert and retain only the original request.
+
+    Checks the database constraint enforcing SPEC FR-05's pending-request limit.
     """
     sessions = create_session_factory(model_engine)
     with sessions.begin() as session:
@@ -136,6 +143,9 @@ def test_retry_key_remains_reserved_after_decision(
 
     Start with an approved or declined request. An insert using its user
     and submission key for another application must fail.
+
+    Supports SPEC FR-14 and FR-15 by keeping the original key association
+    after a decision. The API tests check the resulting retry responses.
     """
     sessions = create_session_factory(model_engine)
     with sessions.begin() as session:
@@ -163,6 +173,8 @@ def test_new_request_keeps_previous_request_and_decision(
     Approve or decline the first request, then save another pending request
     for the same application. Both rows must exist, and the first row must
     keep its ID, outcome, reviewer and decision time.
+
+    Checks retention of the records needed for history under SPEC FR-11.
     """
     sessions = create_session_factory(model_engine)
     with sessions.begin() as session:
@@ -228,6 +240,9 @@ def test_database_rejects_invalid_request_records(
 
     Each case changes fields on an otherwise valid request. Expect the named
     constraint to reject it, and confirm that no request row was saved.
+
+    Supports SPEC FR-02's valid submission data and FR-09's decision details.
+    Sections 2 and 4 define the referenced records and permitted statuses.
     """
     sessions = create_session_factory(model_engine)
     with pytest.raises(IntegrityError, match=error):
@@ -239,7 +254,11 @@ def test_database_rejects_invalid_request_records(
 
 
 def test_database_rejects_unknown_user_role(model_engine: Engine) -> None:
-    """Check that SQLite rejects a user whose role is UNKNOWN."""
+    """Check that SQLite rejects a user whose role is UNKNOWN.
+
+    SPEC section 2, Local demonstration assumptions, defines the two roles.
+    This checks their storage constraint; API tests check role permissions.
+    """
     sessions = create_session_factory(model_engine)
     with pytest.raises(IntegrityError, match="valid_user_role"):
         with sessions.begin() as session:

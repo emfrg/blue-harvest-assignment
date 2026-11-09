@@ -24,6 +24,9 @@ def synchronize_first_reads(monkeypatch: pytest.MonkeyPatch) -> None:
     Temporarily replace check_user with a wrapper that runs the real lookup.
     The first two calls meet at a barrier, then continue together. Later calls,
     including database retries, do not wait.
+
+    Both calls must start their database work before either can finish.
+    This creates the overlap required by SPEC QR-02.
     """
     original = operations.check_user
     barrier = Barrier(2)
@@ -56,6 +59,9 @@ def test_competing_submissions_save_one_request(
     200 with identical response bodies. With different keys, expect one 201
     and one 409 because only one request may be pending for the application.
     In both cases, history must contain exactly one request.
+
+    SPEC AC-17 covers the same-key case; AC-18 covers the different-key case.
+    These check FR-14 and FR-05 under the overlapping calls required by QR-02.
     """
     synchronize_first_reads(monkeypatch)
 
@@ -96,6 +102,9 @@ def test_competing_submissions_with_same_key_and_different_discounts(
     key. Either may succeed. The other must report conflicting details, and
     history must contain only the successful submission. Retrying each body
     must preserve that result.
+
+    SPEC FR-15 rejects a key reused with different details. This extends
+    AC-15 to overlapping calls, as required by QR-02.
     """
     synchronize_first_reads(monkeypatch)
 
@@ -152,6 +161,10 @@ def test_competing_decisions_preserve_one_outcome(
     must return 200 and the other 409. The saved record must match the
     successful response, including its reviewer. The current approval must
     contain this request's discount only if approval succeeded.
+
+    SPEC AC-19 checks one decision under competing calls (FR-08, QR-02).
+    FR-09 and FR-12 define the saved decision details and approved discount.
+    This case starts without an earlier approval.
     """
     created = api_client.post(
         "/requests",
@@ -197,6 +210,9 @@ def test_busy_database_returns_503_without_reserving_submission_key(
     Hold a SQLite write transaction open while submitting a request. Expect
     503 with the busy message and no saved request. After the lock is released,
     the same key and payload must succeed with 201.
+
+    SPEC AC-22 checks QR-02's temporary failure rule: a failed call must save
+    no partial changes and must allow a later submission with the same key.
     """
     engine = create_database_engine(api_database)
     headers = {"X-User-Id": "1", "Idempotency-Key": "first"}

@@ -15,6 +15,9 @@ def test_database_connection(database_engine: Engine) -> None:
     """Check that a connection can execute SQL and return its result.
 
     SELECT 1 asks SQLite to return the number 1; no table data is needed.
+
+    This is a basic connection check supporting the locally runnable setup
+    required by SPEC section 7, Delivery success criteria.
     """
     with database_engine.connect() as connection:
         result = connection.exec_driver_sql("SELECT 1").scalar_one()
@@ -26,6 +29,9 @@ def test_committed_data_survives_reconnection(database_engine: Engine) -> None:
 
     Save a parent row, close the pooled connection, then read the row again
     using the same database file.
+
+    Supports SPEC QR-01 by checking persistence across database connections.
+    The API restart test checks saved requests, decisions and submission keys.
     """
     sessions = create_session_factory(database_engine)
     with sessions.begin() as session:
@@ -43,6 +49,9 @@ def test_failed_transaction_is_rolled_back(database_engine: Engine) -> None:
 
     Insert a parent and deliberately raise an exception before commit.
     A new transaction must find the table empty.
+
+    Checks the rollback mechanism used to satisfy SPEC QR-02's requirement
+    that failed calls leave no partial changes.
     """
     sessions = create_session_factory(database_engine)
     with pytest.raises(RuntimeError, match="cancel transaction"):
@@ -60,6 +69,9 @@ def test_foreign_key_rejects_missing_parent(database_engine: Engine) -> None:
 
     Try to save a child whose parent does not exist. SQLite must raise an
     integrity error, and the children table must stay empty.
+
+    Checks the foreign-key setup supporting SPEC FR-02: requests must refer
+    to mortgage applications that exist.
     """
     # The next operation must open a new connection with foreign-key checks enabled.
     database_engine.dispose()
