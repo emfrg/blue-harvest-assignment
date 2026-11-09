@@ -14,12 +14,30 @@ the endpoint contracts are in [API.md](API.md).
 
 You need:
 
-- **Python 3.13.** Download it from [python.org](https://www.python.org/downloads/).
+- **uv** to manage Python and the project's dependencies. See the
+  [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/),
+  or use the command below for your system.
 - **Git** to clone the repository. See the [Git downloads](https://git-scm.com/downloads/).
 - **A browser**, if you want to try the API through its interactive documentation.
 
 The API and its database run entirely on your computer. No cloud account,
 paid service or separate database installation is needed.
+
+**Install uv on macOS (Terminal)**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Install uv on Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Open a new terminal after installation and check `uv --version`. The project
+uses Python 3.13. During setup, uv uses an available installation or downloads
+one if needed; you do not need to install Python separately.
 
 ## Run Locally
 
@@ -34,38 +52,25 @@ If you already have the repository, open a terminal in its root folder.
 
 ### 2. Install the Dependencies
 
-A virtual environment keeps this project's packages separate from your other
-Python projects. Create and activate it using the commands for your system.
-
-**macOS (Terminal)**
-
-```bash
-python3.13 -m venv .venv
-source .venv/bin/activate
-```
-
-**Windows (PowerShell)**
-
-```powershell
-py -3.13 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Then install the dependencies and commit hooks. These commands, and the database
-and server commands below, are the same on both systems:
+From the repository root, run these commands on either macOS or Windows:
 
 ```sh
-python -m pip install -r requirements.txt
-python -m pre_commit install
+uv sync --locked
+uv run pre-commit install
 ```
 
-The last command installs the checks that run before each local commit.
-`requirements.txt` includes the API dependencies and development tools.
+`uv sync` creates a `.venv` folder and installs the API dependencies and
+development tools recorded in `uv.lock`. The `--locked` option checks that the
+lockfile matches `pyproject.toml`.
+
+`uv run` runs a command using that environment, so you do not need to activate
+it manually. The second command installs the checks that run before each local
+commit.
 
 ### 3. Create the Database and Sample Records
 
 ```bash
-python -m app.init_db
+uv run python -m app.init_db
 ```
 
 Expect `Database ready:` followed by the path to `data/requests.sqlite3`.
@@ -79,7 +84,7 @@ records or migrate tables after a model change. The database file is ignored by 
 ### 4. Start the API
 
 ```bash
-python -m uvicorn app.main:app --reload --reload-dir app
+uv run uvicorn app.main:app --reload --reload-dir app
 ```
 
 Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
@@ -106,8 +111,9 @@ with curl; [API.md](API.md) describes their headers and request bodies.
 
 Uvicorn runs the API server in this terminal. The `--reload --reload-dir app`
 options restart it when Python files in `app/` change. Press `Ctrl+C` to stop it.
-When returning later, activate `.venv` again and run the server command.
-You do not need to recreate the database or reinstall packages each time.
+When returning later, run the same server command from the repository root.
+uv prepares the environment for the command. You do not need to recreate the
+database each time.
 
 ## Try the API
 
@@ -197,25 +203,11 @@ the request and review workflow above without using them.
 
 ## Run Tests and Quality Checks
 
-In a terminal at the repository root, activate the environment.
-
-**macOS (Terminal)**
-
-```bash
-source .venv/bin/activate
-```
-
-**Windows (PowerShell)**
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-Then run the tests and checks on either system:
+From the repository root, run these commands on either system:
 
 ```sh
-python -m pytest
-python -m pre_commit run --all-files
+uv run pytest
+uv run pre-commit run --all-files
 ```
 
 Tests create temporary SQLite databases, so they do not modify
@@ -227,13 +219,40 @@ checking for `app/` and `tests/`. They report problems without rewriting files.
 To apply formatting corrections, run:
 
 ```bash
-python -m ruff format app tests
+uv run ruff format app tests
 ```
 
 Review the changes and rerun the checks. Once installed, these hooks block a
-local commit if a check fails. Keep `.venv` activated when committing so the
-hooks use the project's installed tools. Pytest runs separately. Each new
-checkout needs the `python -m pre_commit install` step.
+local commit if a check fails. They use `uv run --locked` to run the tools in
+the project's environment and require an up-to-date lockfile. Pytest runs
+separately. Each new checkout needs the `uv run pre-commit install` step.
+
+### Change Dependencies
+
+`pyproject.toml` lists the API dependencies and a `dev` group for test and checking
+tools. `uv.lock` records the exact resolved versions, including the packages
+those dependencies need.
+
+Use these commands when changing dependencies. Replace `PACKAGE` with the
+package name:
+
+| Change | Command |
+|---|---|
+| Add an API dependency | `uv add PACKAGE` |
+| Add a development tool | `uv add --dev PACKAGE` |
+| Remove an API dependency | `uv remove PACKAGE` |
+| Remove a development tool | `uv remove --dev PACKAGE` |
+
+To choose a specific version, include it in the argument, for example
+`uv add "fastapi==0.162.0"`. This also works when changing the version of an
+existing dependency.
+
+uv updates `pyproject.toml`, `uv.lock` and the environment together. Review the
+changes, rerun the tests and quality checks, and commit both files together.
+Let uv generate the lockfile. After pulling dependency changes from Git, run
+`uv sync --locked` to install the recorded versions. See
+[uv's dependency guide](https://docs.astral.sh/uv/concepts/projects/dependencies/)
+for more options.
 
 ## Assumptions and Scope
 
@@ -291,17 +310,19 @@ for the database limitations and the comparison with PostgreSQL.
 | [app/models.py](app/models.py) | Database tables, fields and constraints. |
 | [app/database.py](app/database.py), [app/init_db.py](app/init_db.py) | Database connections, sessions and initial setup with sample records. |
 | [tests/](tests/) | API, concurrency, model, database and health checks. Shared fixtures are in `conftest.py`. |
-| [pyproject.toml](pyproject.toml), [.pre-commit-config.yaml](.pre-commit-config.yaml) | Formatting, linting, type-checking and commit-hook configuration. |
+| [pyproject.toml](pyproject.toml), [uv.lock](uv.lock), [.python-version](.python-version) | Dependencies, their resolved versions, the Python version, and Ruff/mypy configuration. |
+| [.pre-commit-config.yaml](.pre-commit-config.yaml) | Formatting, linting and type checks run before commits. |
+| [pytest.ini](pytest.ini) | Test discovery and the project import path. |
 
 ## Troubleshooting
 
 | Problem | What to check |
 |---|---|
-| Python 3.13 is not found | Install Python 3.13 and reopen the terminal. Check with `python3.13 --version` on macOS or `py -3.13 --version` on Windows. |
-| PowerShell blocks `Activate.ps1` | See [Python's Windows activation guidance](https://docs.python.org/3.13/library/venv.html#creating-virtual-environments), then retry the activation command. |
-| `ModuleNotFoundError` | Activate `.venv` and install `requirements.txt` using that environment's `python`. |
-| Mortgage endpoints fail with a missing-table error in the server log | Run `python -m app.init_db` from the repository root. A successful `/health` response only confirms that the API responds; it does not check database readiness. |
-| Port 8000 is already in use | Use `python -m uvicorn app.main:app --reload --reload-dir app --port 8001` and open `http://127.0.0.1:8001/docs`. |
+| `uv` is not found | Install uv using the steps above, open a new terminal and check `uv --version`. |
+| A command reports that the lockfile needs updating | After an intentional dependency edit, use `uv lock`, review the lockfile changes and run `uv sync --locked`. For a fresh checkout, check that `pyproject.toml` and `uv.lock` came from the same revision. |
+| `ModuleNotFoundError` | Run `uv sync --locked` from the repository root, then use the `uv run` command shown above. |
+| Mortgage endpoints fail with a missing-table error in the server log | Run `uv run python -m app.init_db` from the repository root. A successful `/health` response only confirms that the API responds; it does not check database readiness. |
+| Port 8000 is already in use | Use `uv run uvicorn app.main:app --reload --reload-dir app --port 8001` and open `http://127.0.0.1:8001/docs`. |
 | `403` | Check that `X-User-Id` exists and has the required role. Use a manager to submit and a reviewer to decide. |
 | `422` | Read the response's `detail` field for the invalid or missing input. Supply the required headers and a positive integer discount. |
 | `409`: application already has a pending request | Read that application's history. Review the pending request before submitting another. If you intended to change it, decline it first and submit the changed details with a new key. |
