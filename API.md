@@ -1,159 +1,73 @@
-# API contract and lifecycle
+# API reference
 
-This document describes the implemented HTTP contract for `SPEC.md` revision 1.6.
-The specification defines required behaviour; this document records fields,
-routes, validation, state changes and transaction handling.
-The executable schemas are in `app/schemas.py` and appear in `/docs` and
-`/openapi.json`.
+This document describes how to call the API, what it returns and how requests
+move through review. [SPEC.md](SPEC.md) defines the agreed requirements and
+business decisions. See [README.md](README.md) for setup and a complete walkthrough.
 
-## Revision history
+The default local address is `http://127.0.0.1:8000`. FastAPI generates the
+OpenAPI description at `/openapi.json` and the interactive documentation at
+`/docs` from the routes and schemas.
 
-| Revision | Timestamp (Europe/Amsterdam) | Change |
+## Access and headers
+
+For mortgage operations, send a sample user's ID in `X-User-Id`. The API checks
+that the user exists and that their role allows the action. There is no login
+or password check: anyone calling the local API can send any sample user's ID.
+
+| Header | When to send it | Value |
 |---|---|---|
-| 0.1 | 2026-11-05 17:08:48 +01:00 | Initial implemented contract, ready for author review. Business requirements remain those in specification revision 1.3. |
-| 0.2 | 2026-11-06 08:37:22 +01:00 | Author-approved response change: omit `retry_key` from request responses so they focus on submitted details and decisions. The key remains required on submission and stored for duplicate protection. Clarify submission descriptions and session-factory access. Specification revision 1.3 still applies. |
-| 0.3 | 2026-11-07 17:02:58 +01:00 | Document SQLite concurrency limits and what PostgreSQL would change. No API behaviour changes. |
-| 0.4 | 2026-11-08 18:17:46 +01:00 | Remove internal planning references from the introduction and verification section. No API behaviour changes. |
-| 0.5 | 2026-11-08 18:25:45 +01:00 | Align the overlapping-call and busy-database descriptions with specification revision 1.4, QR-02, AC-17 to AC-19, and AC-22. Link AC-22 to the existing busy-database test. No API behaviour changes. |
-| 0.6 | 2026-11-08 21:51:48 +01:00 | Add GET /demo/users and GET /demo/applications for the frontend demo, implementing SPEC revision 1.6, FR-17 and FR-18. Document their responses and access rules. |
+| `X-User-Id` | Every mortgage operation and `GET /demo/applications`. | An existing user ID, such as `1`. |
+| `Idempotency-Key` | `POST /requests` only. | A non-blank string chosen by the caller, such as `api-25-1`. Use a new key for each new submission. |
+| `Content-Type` | Both POST endpoints. | `application/json` |
 
-## Data model and audit history
+Setup creates relationship managers `1` and `2`, and reviewers `3` and `4`.
+Managers can submit requests. Reviewers can approve or decline them. Both roles
+can read requests, application history and approved discounts.
 
-| Table | Fields and relationships |
-|---|---|
-| `mortgage_applications` | `id`: integer primary key identifying a predefined application. |
-| `users` | `id`: integer primary key; required `role`: `RELATIONSHIP_MANAGER` or `REVIEWER`. |
-| `requests` | Fields below. `application_id` references a mortgage application; `submitted_by` and `reviewer_id` reference users. |
+`GET /health`, `GET /demo/users`, `/docs` and `/openapi.json` do not require a
+user ID. Missing or malformed required headers return `422`. An unknown user
+or a user with the wrong role returns `403`.
 
-Each request retains its original submission and its one final decision.
-Submission and decision timestamps are assigned by the API in UTC, stored and
-returned as ISO 8601 text with microseconds and a `+00:00` offset.
+## Endpoints
 
-| Stored request field | Type | Rule |
+| Method | Path | Purpose |
 |---|---|---|
-| `id` | Integer | Database-generated primary key. |
-| `application_id` | Integer | Existing mortgage application; cannot change. |
-| `discount_bps` | Integer | Positive whole number; cannot change. |
-| `reason` | String | Non-blank submission reason; cannot change. |
-| `submitted_by` | Integer | Checked relationship-manager identity; cannot change. |
-| `submitted_at` | Timestamp string | Submission time; cannot change. |
-| `status` | String | `PENDING`, `APPROVED` or `DECLINED`. |
-| `retry_key` | String | Non-blank submission key; cannot change. |
-| `reviewer_id` | Integer or null | Null while pending; checked reviewer after a decision. |
-| `decided_at` | Timestamp string or null | Null while pending; assigned with the decision. |
+| POST | `/requests` | Submit a discount request. |
+| GET | `/requests/{request_id}` | Read a request and its decision. |
+| POST | `/requests/{request_id}/decision` | Approve or decline a pending request. |
+| GET | `/applications/{application_id}/requests` | Read an application's request history. |
+| GET | `/applications/{application_id}/approved-discount` | Read the application's current approved discount. |
+| GET | `/health` | Check that the API responds. |
+| GET | `/demo/users` | List users for the frontend's user selector. |
+| GET | `/demo/applications` | List applications for the frontend's application selector. |
 
-`app/models.py` defines foreign keys, allowed-role/status checks, a positive
-integer discount check, and a check requiring decision fields to match status.
-A unique constraint on `(submitted_by, retry_key)` prevents duplicate records
-for one user's submission key. A partial unique index on `application_id` for
-`PENDING` rows permits only one pending request per application.
+All successful responses below are JSON. For error bodies and validation rules,
+see [Validation and errors](#validation-and-errors). An unexpected internal
+failure can return `500`.
 
-History returns every retained request for the application, ordered by request
-ID. Each row supplies the original submission, submitter and time, plus the
-outcome, reviewer and decision time when present. Previous approvals and declines
-remain visible after later submissions. A separate event table is unnecessary
-for the agreed single-decision lifecycle. This covers FR-09 to FR-11.
+### POST /requests
 
-There is no reviewer justification or assignment history in the current scope.
-The audit record is protected through the API; it is not a tamper-proof log
-against someone directly editing the local SQLite file.
+Submit a discount request for a mortgage application.
 
-## Allowed transitions and changes
+**Access:** Relationship manager.
 
-| Starting state | Action | Result |
-|---|---|---|
-| No request | Submit valid details | New request ID, `PENDING`. |
-| `PENDING` | Approve | `APPROVED`, reviewer and decision time saved together. |
-| `PENDING` | Decline | `DECLINED`, reviewer and decision time saved together. |
-| `APPROVED` or `DECLINED` | Any further decision, including the same outcome | `409`; the first decision remains unchanged. |
-| Any state | PUT, PATCH or DELETE a request | `405`; no edit or delete operation exists. |
-
-Changed application, discount or reason requires a new submission with a new
-key and request ID. If the application has a pending request, a reviewer must
-decline it first. Extra fields in a decision body cannot alter submitted details
-and are rejected with `422`. These rules implement FR-04 to FR-08.
-
-A previous approval remains current while a later request is pending or declined.
-A later approval replaces the current discount; discounts are never combined.
-Select the highest request ID among the application's approved requests: with
-only one pending request allowed, it must be decided before the next request
-can be created. This gives approval order without relying on wall-clock order.
-Earlier approved rows retain their status in history (FR-12).
-
-## Endpoints and identity
-
-Every mortgage operation requires `X-User-Id`, identifying a predefined local
-user. This identity is trusted locally, with existence and role checks. It is
-not production authentication. Health, interactive docs and the generated schema
-remain public, as specified in FR-03.
-
-The additional `/demo/users` route is public. `/demo/applications` requires
-`X-User-Id` with either role. These routes support the frontend demo and are not
-required for the core mortgage workflow.
-
-| Method | Path | Role | Successful response |
-|---|---|---|---|
-| POST | `/requests` | Relationship manager | `201` Request created; `200` existing Request returned. |
-| GET | `/requests/{request_id}` | Either role | `200` Request. |
-| POST | `/requests/{request_id}/decision` | Reviewer | `200` Request after the decision. |
-| GET | `/applications/{application_id}/requests` | Either role | `200` History. |
-| GET | `/applications/{application_id}/approved-discount` | Either role | `200` CurrentApproval. |
-| GET | `/health` | Public | `200` with `{"status":"ok"}`. |
-| GET | `/demo/users` | Public | `200` array of DemoUser objects. |
-| GET | `/demo/applications` | Either role | `200` array of application IDs. |
-
-### Frontend demo lists
-
-Both routes read stored records and return them in ascending ID order.
-They take no request body or query parameters and return `[]` when the
-corresponding table is empty. They do not change records.
-
-`GET /demo/users` requires no headers. Each DemoUser object contains only `id`
-(integer) and `role` (string). With the supplied seed records, the response is:
+**Input:** `X-User-Id`, `Idempotency-Key` and a JSON body containing exactly
+`application_id`, `discount_bps` and `reason`. For example, with user `1` and
+key `api-25-1`:
 
 ```json
-[
-  {"id": 1, "role": "RELATIONSHIP_MANAGER"},
-  {"id": 2, "role": "RELATIONSHIP_MANAGER"},
-  {"id": 3, "role": "REVIEWER"},
-  {"id": 4, "role": "REVIEWER"}
-]
+{
+  "application_id": 1,
+  "discount_bps": 25,
+  "reason": "Competitive offer"
+}
 ```
 
-`GET /demo/applications` requires `X-User-Id`. With the supplied seed records,
-either role receives:
+**Success:** `201` with a new request in `PENDING` status. Repeating the same
+submission with the same user and key returns `200` with the existing request's
+current state. Both responses use the [request fields](#request-response-fields).
 
-```json
-[1, 2]
-```
-
-A missing or malformed user header returns `422`; an unknown user returns `403`.
-The empty-application response still requires a known user. Both list operations
-use the existing transaction handling and can return `503` if SQLite stays busy.
-
-## Request and response schemas
-
-POST bodies use `Content-Type: application/json`.
-
-A relationship manager submits an application ID, requested discount and reason.
-The request starts as `PENDING`. The body requires exactly these fields:
-
-```json
-{"application_id": 1, "discount_bps": 25, "reason": "Competitive offer"}
-```
-
-Submission also requires the `Idempotency-Key` header, described under
-[submission retries](#submission-retries-and-transactions).
-
-Decision requires exactly one field; its value is `APPROVED` or `DECLINED`:
-
-```json
-{"outcome": "APPROVED"}
-```
-
-Every Request response contains the nine fields shown below. Decision fields are
-null while pending. The stored `retry_key` is used for duplicate protection and
-is not included in response bodies.
+Example `201` response; IDs and timestamps are assigned by the API:
 
 ```json
 {
@@ -169,123 +83,396 @@ is not included in response bodies.
 }
 ```
 
-History has `application_id` (integer) and `requests` (array of Request objects).
-An existing application without requests returns
-`{"application_id":1,"requests":[]}`.
+**Errors:** `403` for an unknown user or wrong role; `404` for an unknown
+application; `409` if another request is pending or the key was used with
+different details; `422` for invalid input; `503` if the database stays busy.
 
-CurrentApproval has `application_id` (integer) and `approved_discount` (object
-or null). The object contains `request_id` and `discount_bps`, both integers:
+### GET /requests/{request_id}
+
+Read a request's submitted details, current status and decision.
+
+**Access:** Either role.
+
+**Input:** `X-User-Id` and the request ID in the path. No request body.
+
+**Success:** `200` with the [request fields](#request-response-fields).
+For example, `GET /requests/1` with user `1`, immediately after the submission
+above, returns the same pending request shown above. After approval or decline,
+it returns the updated status, reviewer and decision time.
+
+**Errors:** `403` for an unknown user; `404` for an unknown request; `422` for
+invalid input; `503` if the database stays busy.
+
+### POST /requests/{request_id}/decision
+
+Approve or decline a pending request.
+
+**Access:** Reviewer.
+
+**Input:** `X-User-Id`, the request ID in the path and a JSON body containing
+only `outcome`. Its value must be `APPROVED` or `DECLINED`.
+For example, send this to `/requests/1/decision` as user `3`:
 
 ```json
-{"application_id": 1, "approved_discount": {"request_id": 1, "discount_bps": 25}}
+{"outcome": "APPROVED"}
 ```
 
-An existing application without an approval returns
-`{"application_id":1,"approved_discount":null}`. An unknown application is `404`.
+**Success:** `200` with the [request fields](#request-response-fields), including
+the decision. For the request above, an approval response could be:
 
-## Validation and errors
+```json
+{
+  "id": 1,
+  "application_id": 1,
+  "discount_bps": 25,
+  "reason": "Competitive offer",
+  "submitted_by": 1,
+  "submitted_at": "2026-11-05T16:00:00.000000+00:00",
+  "status": "APPROVED",
+  "reviewer_id": 3,
+  "decided_at": "2026-11-05T16:05:00.000000+00:00"
+}
+```
 
-JSON application IDs and discounts must be positive integers; booleans, decimal
-numbers and numeric strings are rejected. Path/header IDs must parse as positive
-integers. Integer inputs must fit SQLite's signed 64-bit storage, up to
-`9223372036854775807`; this is a technical bound, not a product pricing ceiling.
+The API records the reviewer from `X-User-Id` and assigns the decision time.
+To decline instead, send `{"outcome": "DECLINED"}` while the request is pending.
 
-Reason and submission key must contain a non-whitespace character. Their values
-are retained exactly, without trimming or changing case. Additional body fields
-are rejected, including caller-supplied reviewer IDs or timestamps.
+**Errors:** `403` for an unknown user or wrong role; `404` for an unknown
+request; `409` if the request already has a decision; `422` for invalid input;
+`503` if the database stays busy.
 
-| HTTP status | Meaning |
+### GET /applications/{application_id}/requests
+
+Read all requests and decisions for one mortgage application, ordered by
+request ID from lowest to highest.
+
+**Access:** Either role.
+
+**Input:** `X-User-Id` and the application ID in the path. No request body.
+
+**Success:** `200` with `application_id` and a `requests` list. Each list item
+contains the [request fields](#request-response-fields), including any decision.
+For example, `/applications/2/requests` returns the following if application `2`
+exists but has no requests:
+
+```json
+{"application_id": 2, "requests": []}
+```
+
+**Errors:** `403` for an unknown user; `404` for an unknown application; `422`
+for invalid input; `503` if the database stays busy.
+
+### GET /applications/{application_id}/approved-discount
+
+Read the discount currently approved for use on a mortgage application.
+
+**Access:** Either role.
+
+**Input:** `X-User-Id` and the application ID in the path. No request body.
+
+**Success:** `200` with `application_id` and `approved_discount`.
+For example, after approving request `1` for 25 basis points:
+
+```json
+{
+  "application_id": 1,
+  "approved_discount": {"request_id": 1, "discount_bps": 25}
+}
+```
+
+For an existing application without an approved request, `approved_discount`
+is `null`:
+
+```json
+{"application_id": 2, "approved_discount": null}
+```
+
+**Errors:** `403` for an unknown user; `404` for an unknown application; `422`
+for invalid input; `503` if the database stays busy.
+
+### GET /health
+
+Check that the API responds.
+
+**Access:** No user ID required.
+
+**Input:** No parameters or request body.
+
+**Success:** `200` with:
+
+```json
+{"status": "ok"}
+```
+
+**Errors:** No database or role checks run here. This endpoint does not check
+whether the database has been set up.
+
+### GET /demo/users
+
+List the stored users so a frontend can offer them in its user selector.
+This endpoint is an optional addition for the frontend; the mortgage request
+workflow does not require it.
+
+**Access:** No user ID required.
+
+**Input:** No parameters or request body.
+
+**Success:** `200` with a list of user IDs and roles, ordered by ID. With the
+sample records created by setup:
+
+```json
+[
+  {"id": 1, "role": "RELATIONSHIP_MANAGER"},
+  {"id": 2, "role": "RELATIONSHIP_MANAGER"},
+  {"id": 3, "role": "REVIEWER"},
+  {"id": 4, "role": "REVIEWER"}
+]
+```
+
+If there are no users, the response is `[]`.
+
+**Errors:** `503` if the database stays busy.
+
+### GET /demo/applications
+
+List the stored mortgage application IDs so a frontend can offer them in its
+application selector. Like the user list, this is an optional addition for
+the frontend.
+
+**Access:** Either role.
+
+**Input:** `X-User-Id`. No request body.
+
+**Success:** `200` with a list of application IDs, ordered from lowest to
+highest. With the sample records created by setup:
+
+```json
+[1, 2]
+```
+
+Applications are included even if they have no discount requests. If there are
+no applications, the response is `[]`.
+
+**Errors:** `403` for an unknown user; `422` for a missing or malformed user
+header; `503` if the database stays busy.
+
+### Request response fields
+
+Submission, request lookup and decision responses use the same fields.
+Application history contains a list of these objects.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | Integer | ID of the discount request. |
+| `application_id` | Integer | Mortgage application the request concerns. |
+| `discount_bps` | Integer | Requested discount in basis points. |
+| `reason` | String | Reason supplied by the relationship manager. |
+| `submitted_by` | Integer | ID of the relationship manager who submitted it. |
+| `submitted_at` | Timestamp string | Time the API recorded the submission. |
+| `status` | String | `PENDING`, `APPROVED` or `DECLINED`. |
+| `reviewer_id` | Integer or null | ID of the reviewer who decided it; null while pending. |
+| `decided_at` | Timestamp string or null | Time the API recorded the decision; null while pending. |
+
+Times are returned as UTC text, for example `2026-11-05T16:05:00.000000+00:00`.
+The submission key is stored for matching retries and is not returned in these
+responses.
+
+### Validation and errors
+
+Submission bodies must contain a positive integer `application_id`, a positive
+whole-number `discount_bps`, and a string `reason`. The reason cannot be empty
+or contain only whitespace, such as spaces, tabs or line breaks. Numeric strings,
+decimals and booleans are rejected for the two integer fields. Both POST
+endpoints reject extra body fields.
+
+IDs in paths and headers must parse as positive integers. All input IDs and
+discounts must fit SQLite's integer storage, up to `9223372036854775807`.
+
+The submission key must also contain at least one character other than whitespace.
+The API keeps the reason and key exactly as supplied; it does not trim spaces or
+change letter case.
+
+| Status | Meaning |
 |---|---|
-| `403` | Supplied user is unknown or their role cannot perform the operation. |
-| `404` | Application or request does not exist. Permissions are checked first. |
-| `405` | Method is unsupported, including editing/deleting a request. |
-| `409` | Another request is pending, a key has different submitted details, or a request is already decided. |
-| `422` | Missing/malformed required header, invalid field, missing/extra field, invalid outcome or malformed JSON. |
-| `503` | SQLite remains busy after three transaction attempts. |
-| `500` | Unexpected internal failure; it is not converted into a business conflict. |
+| `403` | The supplied user does not exist or their role cannot perform the action. |
+| `404` | The application or request does not exist. User access is checked before this lookup. |
+| `405` | The HTTP method is not supported on that path, including editing or deleting a request. |
+| `409` | The action conflicts with saved data: a pending request, a previous decision or a submission key used with different details. |
+| `422` | A required header or body field is missing or invalid, the JSON is malformed, or the body contains extra fields. |
+| `503` | The database is still busy after three attempts. |
+| `500` | An unexpected internal error occurred. |
 
-Expected application errors return `{"detail":"message"}`, for example
-`{"detail":"Request already decided"}`. Validation errors use FastAPI's
-`{"detail":[...]}` format, with location, type and message for each error.
-Unexpected failures return a generic server error; raw database errors are not
-included in API responses.
+Expected application errors return a string in `detail`, for example:
 
-## Submission retries and transactions
+```json
+{"detail": "Request already decided"}
+```
 
-The caller chooses a new `Idempotency-Key` for each new submission. When resending
-the same submission after a timeout, it sends the same key and details.
+Validation errors return a list in `detail`, describing the invalid fields and
+where they occur. An unexpected `500` returns a generic server error rather
+than database exception details.
 
-Check `(submitted_by, retry_key)` before checking for a pending request. If found,
-compare application ID, discount and reason exactly. A match returns the original
-request's current state (`200`), including after a decision or later submission.
-Different details return `409`. Failed submissions reserve no key. A successful
-key remains associated with its original request for the lifetime of local data
-(FR-14 to FR-16).
+## Request lifecycle
 
-Every database operation uses its own session and transaction. Successful writes
-commit before a success response; exceptions roll back. Submission saves its
-key and request together. A decision uses one conditional UPDATE matching the
-request ID and `PENDING`, setting status, reviewer and time together.
+| Starting status | Action | Result |
+|---|---|---|
+| No request yet | Submit valid details. | A new request with a new ID and status `PENDING`. |
+| `PENDING` | Approve. | Status becomes `APPROVED`; reviewer and decision time are saved. |
+| `PENDING` | Decline. | Status becomes `DECLINED`; reviewer and decision time are saved. |
+| `APPROVED` or `DECLINED` | Submit another decision, including the same outcome. | `409`; the saved decision is unchanged. |
+| Any status | PUT, PATCH or DELETE `/requests/{request_id}`. | `405`; requests cannot be edited or deleted through the API. |
 
-`get_session_factory` in `app/api.py` retrieves the application's session factory.
-`run_operation` in `app/operations.py` opens each session and transaction with
-`with sessions.begin() as session:`.
+An approval is specific to one request and its requested discount. Once
+submitted, the application ID, discount and reason cannot be edited.
 
-Uniqueness conflicts are re-evaluated in a fresh transaction. SQLite busy errors
-retry the complete transaction, with a maximum of three attempts and waits of
-50 ms and 100 ms. The connection uses SQLite's five-second lock timeout.
-Unrelated database errors are not retried or treated as business conflicts.
+Each application can have only one pending request. To change a pending request,
+a reviewer must first decline it. The relationship manager can then submit a
+new request with a new submission key. The earlier request is kept in history.
 
-The outcomes below assume database access allows the operations to finish within
-the retry limit, as stated in SPEC's AC-17 to AC-19. If SQLite remains busy after
-three attempts, the affected call returns `503` without saving partial changes
-(QR-02, AC-22). Another overlapping call may have succeeded. Resending a submission
-with its original key and details returns the existing request if it was saved.
+Suppose an application has an approved discount of 25 basis points. Submitting
+a new request for 40 does not change the active discount. If the reviewer declines
+the new request, 25 stays active. If the reviewer approves it, 40 becomes the new
+active discount. The two discounts are not added together.
 
-| Competing operations | Required result |
+Both requests and their decisions are available in the application's history.
+The earlier approved request still shows `APPROVED`, even after another approved
+request supplies the active discount. The approved-discount endpoint identifies
+which request currently applies. These rules are defined in SPEC's FR-04 to FR-12.
+
+## Retries and simultaneous calls
+
+### Repeating a submission
+
+Choose a new `Idempotency-Key` for each new submission. If you do not receive
+a response, send the same user, key and body again.
+
+| Situation | Result |
 |---|---|
-| Identical submissions, same user and key | One `201`, one `200`, one stored request. |
-| Different submission keys for one application | One `201`, one `409`, one pending request. |
-| Two decisions on one pending request | One `200`, one `409`, one preserved decision. |
+| That user and key already have a saved request, and the body matches. | `200` with the same request ID and its current state. No new request is created. |
+| That user and key already have a saved request, but the body differs. | `409`; the saved request is unchanged. |
+| That user and key have no saved request. | The API attempts a new submission, applying the usual validation and pending-request rules. |
+
+For example, repeating the original submission after its approval returns that
+request with status `APPROVED`. A matching retry also works while a later request
+is pending.
+
+A submission rejected without saving a request does not reserve its key.
+
+Keys belong to the submitting user. Two users can use the same key independently.
+One user cannot reuse a saved key for a different application or different request
+details, including after the first request is approved or declined. These rules
+implement FR-14 to FR-16.
+
+### Calls arriving at the same time
+
+The submission examples use new keys and start with no pending request. The
+decision example starts with one pending request. Inputs and user roles are valid.
+These outcomes assume the database allows the calls to finish within the retry
+limit, as in SPEC's AC-17 to AC-19.
+
+| Calls arriving together | Result |
+|---|---|
+| Same user, key and submission body. | One `201`, one `200`, and one saved request. |
+| Same user and key, but different requested discounts. | One `201`, one `409`, and one saved request. |
+| New submissions with different keys for the same application. | One `201`, one `409`, and one pending request. |
+| Two reviewers deciding the same pending request. | One `200`, one `409`, and one saved decision. |
+
+If the database stays busy through three attempts, a call instead returns `503`
+with `{"detail": "Database busy; try again"}`. That failed call saves no partial
+changes. Another call may still have succeeded. Retrying a submission with its
+original user, key and body returns the saved request if one exists; otherwise,
+the API attempts to create it. This is the temporary-failure behaviour in QR-02
+and AC-22.
+
+## Implementation notes
+
+### Storage and constraints
+
+The tables are defined in [app/models.py](app/models.py):
+
+| Table | Stored data and relationships |
+|---|---|
+| `mortgage_applications` | Integer primary key `id` for each sample application. |
+| `users` | Integer primary key `id` and required `role`: `RELATIONSHIP_MANAGER` or `REVIEWER`. |
+| `requests` | All request response fields plus `retry_key`. `application_id` references an application; `submitted_by` and `reviewer_id` reference users. |
+
+Each request stores its submission and, once decided, its outcome, reviewer and
+decision time in the same row. The API builds history from these rows. There is
+no separate event table, reviewer assignment history or decision reason.
+
+The database enforces these rules:
+
+- Referenced applications and users must exist. Foreign-key checks are enabled
+  on every connection.
+- Discounts must be positive integers, and roles and statuses must use the
+  permitted values.
+- Pending requests have no reviewer or decision time. Approved and declined
+  requests must have both.
+- The combination of submitting user and submission key must be unique.
+- A unique index on application ID applies only to pending requests. It allows
+  at most one pending request per application while keeping all earlier requests.
+
+The API exposes no route for editing submitted requests. Role permissions and
+protection against replacing a saved decision are enforced by the operations in
+[app/operations.py](app/operations.py).
+
+To find the current approval, the implementation selects the highest request ID
+among that application's approved requests. Because only one request can be
+pending, it must receive a decision before the next request is created. This
+makes request ID order sufficient to identify the latest approval.
+
+### Transactions
+
+`run_operation` creates a session and transaction for each attempt using
+`with sessions.begin() as session:`. It commits all changes together before
+returning success. An exception rolls back that attempt's changes.
+
+A submission saves the request and its key together. A decision uses one UPDATE
+that matches both the request ID and `PENDING` status. It sets the outcome,
+reviewer and decision time together. A second decision cannot update the row
+after its status has changed.
+
+The operation checks for a matching submission key before checking for another
+pending request. This lets a repeated submission retrieve the saved request
+instead of being rejected as a new pending request.
+
+Conflicts with the two uniqueness rules above trigger a new transaction so the
+operation can read the request saved by another call. SQLite busy errors also
+retry the whole transaction, with waits of 50 ms and 100 ms. There are at most
+three attempts, and connections use SQLite's default five-second lock timeout.
+Unrelated database errors are raised immediately. If a uniqueness conflict still
+cannot be resolved on the last attempt, it is raised as an internal error; only
+the busy-database case is converted to `503`.
 
 ### SQLite concurrency limits and PostgreSQL
 
-SQLite allows only one write transaction at a time, even when the changes concern
-different mortgage applications. Adding API workers does not remove this limit.
-See [SQLite's isolation documentation](https://www.sqlite.org/isolation.html).
+SQLite allows one write transaction at a time, even when calls change different
+mortgage applications. Running more API workers does not remove this limit.
+See [SQLite isolation documentation](https://www.sqlite.org/isolation.html).
 
-The existing tests cover two overlapping calls and a held write lock.
-Performance under sustained traffic has not been measured.
+The tests cover two overlapping calls and a database kept busy by another
+transaction. They do not measure how much traffic the API can handle.
 
-PostgreSQL can handle writes to different rows concurrently. Updates to the same
-row can still wait for each other, and deadlocks can require a transaction retry.
-See [PostgreSQL's locking documentation](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS).
+PostgreSQL can update different rows at the same time. Calls updating the same
+row may still wait for each other, and deadlocks can require a transaction retry. See
+[PostgreSQL locking documentation](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS).
 
-The unique submission key, single pending request rule and conditional `PENDING`
-update would still be needed. Using PostgreSQL would require adapting the
-SQLite-specific connection settings, constraint and index definitions, and error
-handling, then running the transaction and concurrency tests against PostgreSQL.
-PostgreSQL has not been tested in this project.
+Moving to PostgreSQL would still require the unique submission key, single
+pending request rule and protection against replacing decisions. It would also
+require adapting the SQLite-specific connection settings, constraints, partial
+index and error handling, then running the database and concurrency tests against
+PostgreSQL. PostgreSQL has not been tested in this project.
 
-## Implementation and verification
+### Where behaviour is checked
 
-| Area | Implementation and checks |
+| Behaviour | Tests |
 |---|---|
-| Fields, relationships, constraints and auditable history | `app/models.py`; history operation and response schema; model tests and API history/restart tests. |
-| Allowed transitions and treatment of edits/revisions | Lifecycle table above; `decide_request` in `app/operations.py`; final-decision, rejected-edit and replacement tests. |
-| Endpoints, schemas, validation and errors | `app/api.py`, `app/schemas.py`, `/docs`, `/openapi.json`; API validation, access, retry and error tests. |
+| Submission, decisions, history, active discounts, validation, access and demo lists. | [tests/test_api.py](tests/test_api.py) |
+| Competing submissions, competing decisions and temporary failure when SQLite stays busy. | [tests/test_api_concurrency.py](tests/test_api_concurrency.py) |
+| Stored fields, defaults and database constraints. | [tests/test_models.py](tests/test_models.py) |
+| Connection setup, saved data after reconnection and transaction rollback. | [tests/test_database.py](tests/test_database.py) |
 
-`tests/test_api.py` covers AC-01 to AC-16, AC-20, AC-21 and AC-23 to AC-25.
-The demo tests check stored records beyond the original seed data, empty lists,
-public user listing and application listing for both roles. The existing identity
-test also checks the demo application list.
-`tests/test_api_concurrency.py` covers AC-17 to AC-19 by holding both calls after
-their first database read, then allowing them to compete. Its
-`test_busy_database_returns_503_without_reserving_submission_key` checks AC-22:
-a held SQLite write lock causes `503` without saving a submission or reserving
-its key; resending succeeds after the lock is released. Test files use isolated
-SQLite databases; the author's manual API review is separate.
-
-Framework references: [FastAPI response models](https://fastapi.tiangolo.com/tutorial/response-model/),
-[FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/), and
-[SQLAlchemy conditional updates](https://docs.sqlalchemy.org/en/21/orm/queryguide/dml.html#orm-update-and-delete-with-custom-where-criteria).
+The concurrency test `test_busy_database_returns_503_without_reserving_submission_key`
+holds a write lock, checks that a submission returns `503` without saving a request,
+then checks that resending succeeds after the lock is released. This covers AC-22.
+All these tests use temporary SQLite databases.
