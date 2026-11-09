@@ -11,6 +11,8 @@
 | 1.2 | 2026-11-05 14:03:37 +01:00 | Added QR-03, QR-04 and QR-05 for consistent formatting, linting and static type checking to support maintainability. These requirements apply to the completed deliverable; tool selection and configuration remain for the technical plan. | Codex, recording project-author approval | Approved by project author |
 | 1.3 | 2026-11-05 14:24:52 +01:00 | Added QR-06 to make formatting, linting and static type checks part of the local commit workflow through pre-commit hooks. Failed checks must block the commit, supporting QR-03, QR-04 and QR-05. | Codex, recording project-author approval | Approved by project author |
 | 1.4 | 2026-11-08 18:25:45 +01:00 | Clarified QR-02 and the database-access assumption for AC-17 to AC-19. Added AC-22 for temporary failure when the database stays busy, so the specification includes the failure outcome already documented by the API. Duplicate prevention and saved-decision protection remain required. | Codex, recording project-author approval | Approved by project author |
+| 1.5 | 2026-11-08 21:43:59 +01:00 | Added GET /users and GET /applications as frontend-demo extras so the frontend can obtain its choices from stored records. Clarified scope and access rules, including the public demo-user list and FR-03's application to listing applications. Added US-06, US-07, FR-17, FR-18 and AC-23 to AC-25. | Codex, following project-author instruction | Scope approved; wording pending author review |
+| 1.6 | 2026-11-08 21:51:48 +01:00 | Moved the additional listing endpoints under /demo in FR-17, FR-18 and AC-23 to AC-25. Explicitly stated that the core mortgage workflow does not need these endpoints. Access rules and returned fields are unchanged. | Codex, following project-author instruction | Scope approved; wording pending author review |
 
 The timestamps for revisions 0.1 and 0.2 were recovered from the file's creation and last-modification times, respectively, before this timestamp correction.
 
@@ -28,7 +30,9 @@ Codex assisted with drafting and checking the requirements against the assignmen
 
 This specification defines the requirements and business rules for mortgage pricing exception requests. It covers submitting requests, reviewing them, retrieving approved discounts and inspecting request history.
 
-The scope includes a locally runnable HTTP API and predefined local users with role checks. Connecting to a company login system, configuring cloud deployment, and building a graphical interface are outside the scope.
+The core scope includes a locally runnable HTTP API and predefined local users with role checks. Connecting to a company login system and configuring cloud deployment are outside the scope.
+
+A frontend demo is an addition to the core API deliverable. Its interface is developed separately; this specification includes the two supporting read endpoints described below.
 
 A relationship manager submits a request. An authorised reviewer approves or declines it. The mortgage application process can retrieve the current approved discount. Internal users can inspect requests and their decisions.
 
@@ -40,6 +44,15 @@ The assignment deliverable includes:
 - Request and decision history.
 - Protection against duplicate submissions caused by retries.
 - Local setup and seed data sufficient to demonstrate these behaviours.
+
+### Frontend demo additions
+
+The frontend needs to offer the users and mortgage applications available in the local database:
+
+- `GET /demo/users` supplies user IDs and roles for choosing a demo user.
+- `GET /demo/applications` supplies mortgage application IDs for choosing an application.
+
+These endpoints are agreed extras for the frontend demo. The core mortgage workflow can be exercised without them, and the assignment brief does not explicitly require these lists. The `/demo` prefix identifies their limited purpose. Reading them from the backend removes the need to maintain hardcoded copies in the frontend. They provide access to existing records; creating or managing users and mortgage applications is outside this addition's scope.
 
 ## 2. Domain concepts and assumptions
 
@@ -74,17 +87,21 @@ The following assumptions address details left open by the assignment brief:
 
 ### Access rules
 
-| Action | Permitted role |
+| Action | Access |
 |---|---|
 | Submit a request | Relationship manager |
 | Approve or decline | Reviewer |
 | Read requests, history or the current approved discount | Either role |
+| List mortgage applications for the frontend demo | Either role |
+| List users for the frontend demo | No user identity required |
 
 For the final locally runnable deliverable, `GET /health` and the generated API documentation, including its schema, are accessible without a user identity. The health endpoint returns only `{"status": "ok"}` to confirm that the API responds. Viewing the documentation does not bypass identity and role checks when calling mortgage operations. This decision does not define access policy for a future production deployment.
 
+`GET /demo/users` is also accessible without a user identity so the frontend can populate its user selector. It returns only the IDs and roles of local demo users. Choosing a user does not verify the caller's identity. Subsequent mortgage operations, including `GET /demo/applications`, require a known local user and enforce the permitted roles above. Public user listing is a local-demo convenience, not a production access policy.
+
 ## 3. User scenarios
 
-All five scenarios are required for the assignment deliverable.
+US-01 to US-05 cover the core mortgage workflow. US-06 and US-07 cover the additional frontend-demo capabilities.
 
 Acceptance scenarios in section 6 provide their independent checks. Prepared application and request records can supply the starting conditions.
 
@@ -95,6 +112,8 @@ Acceptance scenarios in section 6 provide their independent checks. Prepared app
 | US-03 | As a reviewer, I want to decline a pending request so that it does not authorise a discount. | Decline a prepared request and inspect the recorded outcome. |
 | US-04 | As a relationship manager, I want to check a request’s status so that I know whether it is awaiting a decision. | Retrieve prepared pending, approved and declined requests. |
 | US-05 | As a reviewer, I want to inspect an application’s request history so that I can trace how its current approved discount was reached. | Retrieve an application with several prepared requests and decisions. |
+| US-06 | As someone trying the frontend demo, I want to choose an available user so that I can try the workflow with that user's role. | Retrieve the stored demo users and their roles without first choosing a user. |
+| US-07 | As a relationship manager using the frontend demo, I want to choose an existing mortgage application so that I can submit a discount request for it. | Retrieve the stored application IDs using a known local user. |
 
 ## 4. Business decisions
 
@@ -155,7 +174,7 @@ The assignment brief does not specify a product-specific maximum discount. No au
 |---|---|
 | FR-01 | An accepted submission must create one uniquely identified request with initial status PENDING. |
 | FR-02 | A submission must be rejected if its application does not exist or its required data fails the validation rules in section 2. |
-| FR-03 | Each mortgage operation must require a known user with a role permitted by the access table in section 2. |
+| FR-03 | Each mortgage operation, including listing applications, must require a known user with a role permitted by the access table in section 2. |
 | FR-04 | Attempts to change a submitted application ID, discount or reason must be rejected. |
 | FR-05 | A new submission must be rejected if its application already has a pending request. |
 | FR-06 | Approving a pending request must set its status to APPROVED and authorise exactly its submitted discount. |
@@ -175,6 +194,15 @@ For retry matching, the submitted fields are the application ID, discount and re
 Retry matching happens before the restriction on creating another pending request is applied. It continues to work after the original request has been decided.
 
 Rejected submissions do not reserve retry keys. A different key represents a new submission and is subject to the normal creation rules.
+
+### Additional functional requirements for the frontend demo
+
+| ID | Required behaviour |
+|---|---|
+| FR-17 | `GET /demo/users` must return all stored local demo users, with only their IDs and roles, without requiring a user identity. If no users exist, it must return an empty list. |
+| FR-18 | `GET /demo/applications` must return all stored mortgage application IDs to a known local user with either role. If no applications exist, it must return an empty list. |
+
+Both endpoints read the current database records without changing them. Their results must reflect the records present, rather than a hardcoded list of sample values. The frontend uses these results to populate its user and application choices.
 
 ### Quality requirements
 
@@ -227,6 +255,14 @@ when one call reports temporary unavailability.
 | AC-21 | An otherwise valid submission has no retry key, an empty key or a key containing only whitespace. Check each case separately. | The submission is rejected without creating a request. | FR-16 |
 | AC-22 | An existing application has no pending request. Another operation keeps the database busy through the retry limit while a valid new submission is attempted. Release the database lock and repeat the submission with the same key and details. | The failed call reports temporary unavailability and saves no request or submission-key association. Once database access is available, repeating the submission creates one pending request. | FR-01, QR-02 |
 
+### Frontend demo additions
+
+| ID | Given / when | Expected result | Requirements |
+|---|---|---|---|
+| AC-23 | Local demo users have been prepared. Call `GET /demo/users` without supplying a user identity. Also check a database with no users. | Every stored user appears once with only their ID and role; no user identity is required. With no users, the result is an empty list. Stored records are unchanged. | FR-17 |
+| AC-24 | Mortgage applications have been prepared. Call `GET /demo/applications` as a known manager and as a known reviewer. Also check a database with no applications. | Each role can retrieve every stored application ID, including applications with no requests. With no applications, the result is an empty list. Stored records are unchanged. | FR-18, FR-03 |
+| AC-25 | Call `GET /demo/applications` with a missing, malformed or unknown user identity. Check each case separately. | The call is rejected and no application list is returned. Stored records are unchanged. | FR-03, FR-18 |
+
 ## 7. Delivery success criteria
 
 These criteria apply to the completed implementation:
@@ -235,3 +271,4 @@ These criteria apply to the completed implementation:
 - Decline, replacement approval and retry scenarios produce the outcomes specified above.
 - Each acceptance scenario has recorded verification evidence.
 - Another engineer can reproduce the workflow using the supplied setup instructions and seed data without paid services or private infrastructure.
+- The frontend demo can obtain its user and application choices through the two additional read endpoints, without maintaining hardcoded copies of those records.

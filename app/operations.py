@@ -12,6 +12,7 @@ from app.schemas import (
     ApplicationHistory,
     ApprovedDiscount,
     CurrentApproval,
+    DemoUser,
     RequestDetails,
     Submission,
 )
@@ -75,6 +76,20 @@ def check_application(session: Session, application_id: int) -> None:
     """Check that the application exists, or raise HTTP 404 if it is missing."""
     if session.get(MortgageApplication, application_id) is None:
         raise HTTPException(404, "Application not found")
+
+
+def list_demo_users(session: Session) -> list[DemoUser]:
+    """Return stored user IDs and roles for the frontend demo."""
+    users = session.scalars(select(User).order_by(User.id))
+    return [DemoUser(id=user.id, role=user.role) for user in users]
+
+
+def list_demo_applications(session: Session, user_id: int) -> list[int]:
+    """Return stored application IDs after checking the user's access."""
+    check_user(session, user_id)
+    return list(
+        session.scalars(select(MortgageApplication.id).order_by(MortgageApplication.id))
+    )
 
 
 def find_request(session: Session, request_id: int) -> DiscountRequest:

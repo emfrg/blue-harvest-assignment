@@ -11,9 +11,12 @@ from typing import TypedDict, Unpack, cast
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from sqlalchemy import delete
 
+from app.database import create_database_engine, create_session_factory
 from app.init_db import create_database
 from app.main import create_app
+from app.models import MortgageApplication, User
 
 
 class SubmissionChanges(TypedDict, total=False):
@@ -83,6 +86,64 @@ def approval(client: TestClient, application_id: int = 1) -> dict[str, int] | No
     )
     assert response.status_code == 200
     return cast(dict[str, int] | None, response.json()["approved_discount"])
+
+
+def test_demo_lists_return_stored_users_and_applications(
+    api_client: TestClient, api_database: Path
+) -> None:
+    """Check that the demo lists include records beyond the original seed data.
+
+    Add a user and application to the test database. The user list must work
+    without an identity, and either role must be able to list applications.
+    """
+    engine = create_database_engine(api_database)
+    try:
+        with create_session_factory(engine).begin() as session:
+            session.add_all([User(id=7, role="REVIEWER"), MortgageApplication(id=9)])
+    finally:
+        engine.dispose()
+
+    # Frontend choices must come from stored records. (FR-17, FR-18)
+    response = api_client.get("/demo/users")
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": 1, "role": "RELATIONSHIP_MANAGER"},
+        {"id": 2, "role": "RELATIONSHIP_MANAGER"},
+        {"id": 3, "role": "REVIEWER"},
+        {"id": 4, "role": "REVIEWER"},
+        {"id": 7, "role": "REVIEWER"},
+    ]
+    for user_id in (1, 3):
+        response = api_client.get(
+            "/demo/applications", headers={"X-User-Id": str(user_id)}
+        )
+        assert response.status_code == 200
+        assert response.json() == [1, 2, 9]
+
+
+def test_demo_lists_return_empty_lists_when_records_are_absent(
+    api_client: TestClient, api_database: Path
+) -> None:
+    """Check empty lists when the test database has no corresponding records.
+
+    Keep a user while checking the empty application list, then remove users
+    to check the public user list. Both responses must be 200 with [].
+    """
+    engine = create_database_engine(api_database)
+    try:
+        with engine.begin() as connection:
+            connection.execute(delete(MortgageApplication))
+        response = api_client.get("/demo/applications", headers={"X-User-Id": "1"})
+        assert response.status_code == 200
+        assert response.json() == []
+
+        with engine.begin() as connection:
+            connection.execute(delete(User))
+        response = api_client.get("/demo/users")
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        engine.dispose()
 
 
 def test_submission_records_original_details_and_can_be_read(
@@ -241,6 +302,7 @@ def test_identity_is_required_for_every_mortgage_operation(
         ("POST", "/requests/1/decision", {"outcome": "APPROVED"}),
         ("GET", "/applications/1/requests", None),
         ("GET", "/applications/1/approved-discount", None),
+        ("GET", "/demo/applications", None),
     ]
     # The same identity rules apply to reads, submissions and decisions. (FR-03)
     for method, path, body in calls:
@@ -573,6 +635,8 @@ def test_public_docs_describe_inputs_outputs_and_errors(api_client: TestClient) 
         "/requests/{request_id}/decision",
         "/applications/{application_id}/requests",
         "/applications/{application_id}/approved-discount",
+        "/demo/users",
+        "/demo/applications",
     }
     submission = paths["/requests"]["post"]
     assert {"200", "201", "403", "404", "409", "422", "503"} <= set(
