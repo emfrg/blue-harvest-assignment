@@ -428,26 +428,41 @@ for the database limitations and the comparison with PostgreSQL.
 
 Before using this with real mortgage applications, I would address the following:
 
-- **Authentication and access.** Connect to the company's login system, apply
-  role checks to verified users, and agree which applications they can access.
+- **Authentication and endpoint access.** Connect to the company's login system
+  and apply the existing endpoint permissions to the signed-in user. Managers
+  submit requests, reviewers approve or decline them, and both roles can read
+  requests, history and approved discounts.
 
 - **Containerized deployment.** Package the API and frontend as Docker images.
   Supply configuration and secrets through the deployment environment, and keep
   database storage separate from disposable containers.
 
-- **Database updates and recovery.** Test database update scripts against existing
-  records. Schedule backups, test restoration, agree recovery targets, and
-  restrict access to stored request and decision history.
+- **PostgreSQL and workload testing.** Replace SQLite with PostgreSQL, run the
+  existing workflow and concurrency tests against it, and check response times
+  and errors under the expected traffic.
 
-- **Traffic and reliability.** Test the expected workload and evaluate PostgreSQL
-  if SQLite's write limit becomes a problem. Recheck the business rules after any
-  database change, and monitor response times and errors.
+- **Database updates and recovery.** Use [Alembic](https://alembic.sqlalchemy.org/en/latest/)
+  to manage changes to existing tables. Automate backups and test that restoring
+  them preserves request history and approved discounts.
 
-- **Real data and pricing rules.** Integrate with the mortgage system and agree
-  the applicable pricing rules, including any maximum discount.
+## Further Development
 
-Possible workflow improvements include withdrawing pending requests and recording
-decision reasons. Agree these changes in [SPEC.md](SPEC.md) before implementation.
+- **Let managers withdraw pending requests.** A manager may request 25 basis
+  points, then agree 30 with the customer before review. Allowing withdrawal would
+  let them submit the new request without waiting for a reviewer to decline the
+  original. Keep the withdrawn request in the history.
+
+- **Record decision reasons.** Let reviewers explain why they approved or declined
+  a request, so someone reading the history can understand the decision.
+
+- **Add pricing validation.** Define discount limits with the business, for
+  example a maximum permitted discount. Validate new requests against those limits.
+
+- **Adopt the full Spec Kit workflow.** Build on this project's manual use of SPEC
+  by integrating [GitHub Spec Kit](https://github.com/github/spec-kit)'s templates,
+  agent instructions and commands for specification, planning, tasks,
+  implementation and verification. The aim is to make continued development
+  easier and faster, with less repeated prompting and human review at each stage.
 
 ## Project Files
 
