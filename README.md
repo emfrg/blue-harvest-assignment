@@ -59,8 +59,8 @@ python -m pip install -r requirements.txt
 python -m pre_commit install
 ```
 
-The last command installs the checks that run before each local commit. Use
-the versions in `requirements.txt` for both running the API and developing it.
+The last command installs the checks that run before each local commit.
+`requirements.txt` includes the API dependencies and development tools.
 
 ### 3. Create the Database and Sample Records
 
@@ -104,8 +104,8 @@ Expect HTTP **200** with a JSON response containing the application's requests.
 On a fresh database, the `requests` list is empty. All endpoints can be called
 with curl; [API.md](API.md) describes their headers and request bodies.
 
-Keep the terminal running while you use the API. Changes to Python files in
-`app/` restart the server automatically. Press `Ctrl+C` to stop it.
+Uvicorn runs the API server in this terminal. The `--reload --reload-dir app`
+options restart it when Python files in `app/` change. Press `Ctrl+C` to stop it.
 When returning later, activate `.venv` again and run the server command.
 You do not need to recreate the database or reinstall packages each time.
 
@@ -121,16 +121,17 @@ Setup provides these records:
 
 Supply the chosen user ID in the `X-User-Id` header for each mortgage operation.
 In `/docs`, expand an endpoint, select **Try it out**, fill in the fields and
-select **Execute**. The **Server response** shows what actually happened.
+select **Execute**. Check the HTTP status and JSON body under **Server response**.
 
-The walkthrough assumes application `1` has no pending request, as on a fresh
-setup. If you have used it before, see the pending-request entry under
-[Troubleshooting](#troubleshooting).
+The walkthrough assumes application `1` has no pending request. If you repeat
+it, choose unused keys for both submissions, such as `readme-25-2` and
+`readme-40-2`. If a request is already pending, see the pending-request entry
+under [Troubleshooting](#troubleshooting).
 
 ### 1. Submit a Discount Request
 
-Open **POST /requests**. Set `X-User-Id` to `1` and `Idempotency-Key` to
-`readme-25-1`. Use this body:
+Open **POST /requests**. Set `X-User-Id` to `1` and `Idempotency-Key` to an
+unused key, such as `readme-25-1`. Use this body:
 
 ```json
 {

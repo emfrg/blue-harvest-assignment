@@ -14,8 +14,6 @@
 | 1.5 | 2026-11-08 21:43:59 +01:00 | Added GET /users and GET /applications as frontend-demo extras so the frontend can obtain its choices from stored records. Clarified scope and access rules, including the public demo-user list and FR-03's application to listing applications. Added US-06, US-07, FR-17, FR-18 and AC-23 to AC-25. | Codex, following project-author instruction | Scope approved; wording pending author review |
 | 1.6 | 2026-11-08 21:51:48 +01:00 | Moved the additional listing endpoints under /demo in FR-17, FR-18 and AC-23 to AC-25. Explicitly stated that the core mortgage workflow does not need these endpoints. Access rules and returned fields are unchanged. | Codex, following project-author instruction | Scope approved; wording pending author review |
 
-The timestamps for revisions 0.1 and 0.2 were recovered from the file's creation and last-modification times, respectively, before this timestamp correction.
-
 For each requirements change, record the affected requirement IDs and the reason in the revision history.
 
 ## Sources and preparation
@@ -60,7 +58,7 @@ These endpoints are agreed extras for the frontend demo. The core mortgage workf
 
 | Concept | Meaning |
 |---|---|
-| Mortgage application | An existing application identified by an application ID. |
+| Mortgage application | A customer's application for a mortgage. This project represents it using an application ID. |
 | Request | A uniquely identified submission containing the application ID, requested discount, reason, submitter, submission time and current status. |
 | Discount | A reduction in the mortgage interest rate, expressed in basis points. One basis point equals 0.01 percentage points. |
 | Decision | The outcome, reviewer ID and decision time recorded for one request. |
@@ -75,7 +73,7 @@ The following assumptions address details left open by the assignment brief:
 
 - The project includes sample mortgage applications and sample users for running the service locally. Relationship managers can create discount requests for those mortgage applications.
 - Each user has one role: relationship manager or reviewer.
-- The supplied user identity is trusted locally. The service still checks that the user exists and has the required role.
+- The caller supplies a local user ID. The service checks that this user exists and has the required role, but does not verify who is making the call.
 - System-to-system calls use a predefined local identity for the demonstration.
 
 ### Submission validation
@@ -217,7 +215,10 @@ These are requirements chosen for this assignment to support reliable operation.
 | QR-05 | Python code within the agreed annotation and checking scope must pass static type checking without reported type errors. | Review annotation coverage and run the selected type checker. |
 | QR-06 | The documented local setup must enable formatting, linting and static type checks as pre-commit hooks. A failed check must block the commit. | Follow the documented setup in an isolated checkout. Attempt commits with a formatting, linting or type-checking failure, one at a time; each must be blocked. Confirm a commit succeeds when all checks pass. |
 
-These requirements apply to the completed deliverable. The technical plan will define the tools, configurations, type-annotation coverage and type-checking strictness.
+Ruff formatting and linting, and strict mypy type checking, are configured for
+application and test code in [pyproject.toml](pyproject.toml). The local commit
+hooks are defined in [.pre-commit-config.yaml](.pre-commit-config.yaml). See
+[README.md](README.md#run-tests-and-quality-checks) for the commands to run them.
 
 For this assignment, the service must run locally without paid services or private infrastructure. Setup instructions and seed data must make the acceptance scenarios reproducible.
 
